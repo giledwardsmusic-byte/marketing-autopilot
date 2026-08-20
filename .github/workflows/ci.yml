@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install
+      - run: npm test
+      - name: Syntax check
+        run: |
+          node --check src/index.js
+          node --check src/lib/ai.js
+          node --check src/lib/auth.js
+          node --check src/lib/campaign-engine.js
+          node --check src/lib/db.js
+          node --check src/lib/publishers.js
+          node --check src/lib/security.js
+          node --check src/lib/utils.js
+          node --check public/app.js
