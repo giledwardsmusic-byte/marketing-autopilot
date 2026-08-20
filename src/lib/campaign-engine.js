@@ -35,16 +35,24 @@ export function productScore(p, stats={}) {
   return Math.max(0.1, Number(p.manual_priority||1) * freshness * performance);
 }
 
-export function assetScore(a, experimentalShare=0.12) {
+function performanceMultiplier(s={}) {
+  const impressions=Number(s.impressions||0), clicks=Number(s.clicks||0), conversions=Number(s.conversions||0), revenue=Number(s.revenue_cents||0);
+  const enough=impressions>=300 || clicks>=12 || conversions>=2;
+  if(!enough) return 1;
+  const ctr=impressions?clicks/impressions:0, conv=clicks?conversions/clicks:0;
+  return clamp(0.65 + Math.log10(1+revenue/100)*0.18 + ctr*3 + conv*5, 0.65, 2.2);
+}
+
+export function assetScore(a, experimentalShare=0.12, stats={}) {
   const age = Math.min(365, daysSince(a.last_used_at));
   const novelty = a.use_count === 0 ? 100 : age;
   const statusWeight = a.status === 'experimental' ? experimentalShare : 1;
-  return novelty * statusWeight / Math.sqrt(1+Number(a.use_count||0));
+  return novelty * statusWeight * performanceMultiplier(stats[a.id]) / Math.sqrt(1+Number(a.use_count||0));
 }
 
-export function copyScore(c) {
+export function copyScore(c, stats={}) {
   const age = Math.min(365, daysSince(c.last_used_at));
-  return (c.use_count===0?80:age)/Math.sqrt(1+Number(c.use_count||0));
+  return (c.use_count===0?80:age) * performanceMultiplier(stats[c.id]) / Math.sqrt(1+Number(c.use_count||0));
 }
 
 function weightedPick(items, scoreFn, avoidId=null) {
@@ -59,7 +67,7 @@ export function buildCaption(product, copyItem, trackingUrl) {
   return trackingUrl ? `${core}\n\n${trackingUrl}` : core;
 }
 
-export function generatePlan({ products, assets, copyItems, stats={}, postingPolicy, startISO, origin, experimentalShare=0.12, timeZone='UTC' }) {
+export function generatePlan({ products, assets, copyItems, stats={}, assetStats={}, copyStats={}, postingPolicy, startISO, origin, experimentalShare=0.12, timeZone='UTC' }) {
   const activeProducts = products.filter(p=>p.status==='active');
   if (!activeProducts.length) return [];
   const platforms = Object.entries(postingPolicy||{});
@@ -79,9 +87,9 @@ export function generatePlan({ products, assets, copyItems, stats={}, postingPol
       for (const time of times) {
         const product = weightedPick(activeProducts, p=>productScore(p,stats), lastProductByPlatform[platform]);
         const eligibleAssets = assets.filter(a => ['approved','experimental'].includes(a.status) && (!a.product_id || a.product_id===product.id) && ((a.platforms_json||[]).length===0 || (a.platforms_json||[]).includes(platform)));
-        const asset = weightedPick(eligibleAssets, a=>assetScore(a,experimentalShare), lastAssetByPlatform[platform]);
+        const asset = weightedPick(eligibleAssets, a=>assetScore(a,experimentalShare,assetStats), lastAssetByPlatform[platform]);
         const eligibleCopy = copyItems.filter(c => ['approved','experimental'].includes(c.status) && (!c.product_id || c.product_id===product.id) && (!c.platform || c.platform===platform));
-        const copyItem = weightedPick(eligibleCopy, copyScore);
+        const copyItem = weightedPick(eligibleCopy, c=>copyScore(c,copyStats));
         const trackingCode = crypto.randomUUID().replaceAll('-','').slice(0,16);
         const sales = product.sales_url || product.freebie_url || '';
         const trackingUrl = sales ? `${origin}/r/${trackingCode}` : '';
