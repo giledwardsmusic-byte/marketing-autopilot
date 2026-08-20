@@ -40,3 +40,11 @@ test('revenue evidence can increase product score',async()=>{
   const strong=productScore(products[0],{p1:{impressions:1000,clicks:50,conversions:5,revenue_cents:10000}});
   assert.ok(strong>weak);
 });
+
+test('creative performance evidence can boost a proven asset',async()=>{
+  const { assetScore } = await import('../src/lib/campaign-engine.js');
+  const a={id:'creative-a',status:'approved',use_count:4,last_used_at:'2026-07-01T00:00:00.000Z'};
+  const baseline=assetScore(a,0.12,{});
+  const proven=assetScore(a,0.12,{'creative-a':{impressions:2000,clicks:100,conversions:8,revenue_cents:20000}});
+  assert.ok(proven>baseline);
+});
