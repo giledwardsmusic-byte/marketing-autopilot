@@ -1,4 +1,4 @@
-import { id, nowIso, sha256Hex } from './utils.js';
+import { id, nowIso } from './utils.js';
 import { randomSalt, randomToken, hashPassword, verifyPassword, hashSessionToken, readCookie, sessionCookie, clearSessionCookie } from './security.js';
 import { audit } from './db.js';
 
@@ -24,23 +24,53 @@ export async function bootstrap(env) {
 export async function login(env, email, password) {
   const normalizedEmail = String(email||'').trim().toLowerCase();
   const suppliedPassword = String(password||'');
-  const user = await env.DB.prepare(`SELECT * FROM users WHERE email=? AND status='active'`).bind(normalizedEmail).first();
-  if (!user) return null;
+  let user = await env.DB.prepare(`SELECT * FROM users WHERE email=? AND status='active'`).bind(normalizedEmail).first();
+  let valid = false;
 
-  let valid = await verifyPassword(suppliedPassword, user.password_salt, user.password_hash);
-
-  if (!valid && user.role === 'owner' && env.BOOTSTRAP_ADMIN_EMAIL && env.BOOTSTRAP_ADMIN_PASSWORD) {
-    const bootstrapEmail = env.BOOTSTRAP_ADMIN_EMAIL.trim().toLowerCase();
-    if (normalizedEmail === bootstrapEmail && suppliedPassword === env.BOOTSTRAP_ADMIN_PASSWORD) {
-      const salt = randomSalt();
-      const hash = await hashPassword(suppliedPassword, salt);
-      await env.DB.prepare(`UPDATE users SET password_hash=?,password_salt=? WHERE id=?`).bind(hash,salt,user.id).run();
-      await audit(env,{userId:user.id,type:'auth.password_repaired',entityType:'user',entityId:user.id,summary:'Owner password hash repaired from bootstrap secret'});
-      valid = true;
+  if (user) {
+    try {
+      valid = await verifyPassword(suppliedPassword, user.password_salt, user.password_hash);
+    } catch {
+      valid = false;
     }
   }
 
-  if (!valid) return null;
+  // During owner setup, Cloudflare bootstrap secrets are the recovery source of truth.
+  // This repairs a stale hash, a mistyped stored owner email, or an old setup record
+  // without asking the owner to recreate the account or change passwords again.
+  const bootstrapEmail = String(env.BOOTSTRAP_ADMIN_EMAIL||'').trim().toLowerCase();
+  const bootstrapPassword = String(env.BOOTSTRAP_ADMIN_PASSWORD||'');
+  const bootstrapPasswordMatches = bootstrapPassword && (
+    suppliedPassword === bootstrapPassword ||
+    suppliedPassword.trim() === bootstrapPassword.trim()
+  );
+  const bootstrapMatch = bootstrapEmail && normalizedEmail === bootstrapEmail && bootstrapPasswordMatches;
+
+  if (!valid && bootstrapMatch) {
+    if (!user) {
+      user = await env.DB.prepare(`SELECT * FROM users WHERE role='owner' AND status='active' ORDER BY created_at LIMIT 1`).first();
+    }
+
+    const salt = randomSalt();
+    const hash = await hashPassword(bootstrapPassword.trim(), salt);
+
+    if (user) {
+      await env.DB.prepare(`UPDATE users SET email=?,password_hash=?,password_salt=? WHERE id=?`)
+        .bind(bootstrapEmail,hash,salt,user.id).run();
+      await audit(env,{userId:user.id,type:'auth.owner_repaired',entityType:'user',entityId:user.id,summary:'Owner login repaired from bootstrap secrets'});
+      user = {...user,email:bootstrapEmail,password_hash:hash,password_salt:salt,role:'owner',status:'active'};
+    } else {
+      const uid=id('usr');
+      await env.DB.prepare(`INSERT INTO users(id,email,password_hash,password_salt,role,status,created_at) VALUES(?,?,?,?,?,'active',?)`)
+        .bind(uid,bootstrapEmail,hash,salt,'owner',nowIso()).run();
+      await audit(env,{userId:uid,type:'auth.owner_recovered',entityType:'user',entityId:uid,summary:'Owner account recovered from bootstrap secrets'});
+      user={id:uid,email:bootstrapEmail,role:'owner',status:'active'};
+    }
+    valid = true;
+  }
+
+  if (!user || !valid) return null;
+
   const token = randomToken();
   const tokenHash = await hashSessionToken(token);
   const expires = new Date(Date.now()+14*86400_000).toISOString();
