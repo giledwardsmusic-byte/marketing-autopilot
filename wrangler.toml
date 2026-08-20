@@ -21,7 +21,7 @@ crons = ["*/5 * * * *", "17 3 * * *"]
 
 [vars]
 APP_NAME = "Marketing Autopilot"
-APP_ORIGIN = "http://localhost:8787"
+APP_ORIGIN = "https://marketing-autopilot.giledwardsmusic.workers.dev"
 AI_PROVIDER = "none"
 AI_MODEL = ""
 APPROVED_MONTHLY_COST_CENTS = "0"
