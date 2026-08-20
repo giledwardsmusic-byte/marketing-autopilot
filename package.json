@@ -1,0 +1,18 @@
+{
+  "name": "marketing-autopilot",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Free-first, mobile-first marketing automation on Cloudflare Workers, D1 and R2.",
+  "scripts": {
+    "test": "node --test",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:local": "wrangler d1 migrations apply marketing-autopilot --local",
+    "db:remote": "wrangler d1 migrations apply marketing-autopilot --remote",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.30.0"
+  }
+}
