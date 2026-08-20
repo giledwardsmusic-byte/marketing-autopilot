@@ -1,0 +1,20 @@
+# Copy to .dev.vars for local development only. Never commit real secrets.
+BOOTSTRAP_ADMIN_EMAIL=owner@example.com
+BOOTSTRAP_ADMIN_PASSWORD=change-this-long-password
+SESSION_SECRET=replace-with-long-random-secret
+
+# Optional AI. Set AI_PROVIDER=openai or anthropic and supply matching key/model.
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+AI_MODEL=
+
+# Optional real publishing connectors.
+BUFFER_API_KEY=
+MAILERLITE_API_KEY=
+
+# Public origin used to serve R2 media to publishing services.
+APP_ORIGIN=http://localhost:8787
+# Generate with: openssl rand -base64 32
+CREDENTIAL_ENCRYPTION_KEY=
+# Optional: enables signed Payhip paid/refunded webhook tracking.
+PAYHIP_API_KEY=
