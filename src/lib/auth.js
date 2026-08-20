@@ -29,9 +29,6 @@ export async function login(env, email, password) {
 
   let valid = await verifyPassword(suppliedPassword, user.password_salt, user.password_hash);
 
-  // Recovery path for the owner during initial setup. If the stored hash was
-  // created by an incompatible PBKDF2 configuration, the Cloudflare bootstrap
-  // secret is the source of truth and repairs the stored hash automatically.
   if (!valid && user.role === 'owner' && env.BOOTSTRAP_ADMIN_EMAIL && env.BOOTSTRAP_ADMIN_PASSWORD) {
     const bootstrapEmail = env.BOOTSTRAP_ADMIN_EMAIL.trim().toLowerCase();
     if (normalizedEmail === bootstrapEmail && suppliedPassword === env.BOOTSTRAP_ADMIN_PASSWORD) {
@@ -50,11 +47,17 @@ export async function login(env, email, password) {
   await env.DB.prepare(`INSERT INTO sessions(id,user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?,?)`).bind(id('ses'),user.id,tokenHash,expires,nowIso()).run();
   await env.DB.prepare(`UPDATE users SET last_login_at=? WHERE id=?`).bind(nowIso(),user.id).run();
   await audit(env,{userId:user.id,type:'auth.login',entityType:'user',entityId:user.id,summary:'Signed in'});
-  return { user:{id:user.id,email:user.email,role:user.role}, cookie:sessionCookie(token) };
+  return { user:{id:user.id,email:user.email,role:user.role,session_token:token}, cookie:sessionCookie(token) };
+}
+
+function requestToken(request) {
+  const auth = request.headers.get('authorization') || '';
+  if (/^Bearer\s+/i.test(auth)) return auth.replace(/^Bearer\s+/i,'').trim();
+  return readCookie(request,'ma_session');
 }
 
 export async function currentUser(env, request) {
-  const token = readCookie(request,'ma_session');
+  const token = requestToken(request);
   if (!token) return null;
   const tokenHash = await hashSessionToken(token);
   const row = await env.DB.prepare(`SELECT u.id,u.email,u.role,u.status,s.id AS session_id FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.status='active'`).bind(tokenHash,nowIso()).first();
@@ -62,7 +65,7 @@ export async function currentUser(env, request) {
 }
 
 export async function logout(env, request) {
-  const token = readCookie(request,'ma_session');
+  const token = requestToken(request);
   if (token) {
     const tokenHash = await hashSessionToken(token);
     await env.DB.prepare(`DELETE FROM sessions WHERE token_hash=?`).bind(tokenHash).run();
