@@ -12,11 +12,11 @@
     <div class="login-box">
       <div class="login-mark">MA</div>
       <h1>Marketing Autopilot</h1>
-      <p id="loginNote" class="sub">Sign in to see what's running.</p>
+      <p id="loginNote" class="sub">Open your marketing dashboard.</p>
       <form id="loginForm">
-        <label>Email</label><input id="loginEmail" type="email" autocomplete="username" required>
-        <label>Password</label><input id="loginPassword" type="password" autocomplete="current-password" required>
-        <button class="btn primary wide" type="submit">Sign in</button>
+        <label>Email</label><input id="loginEmail" type="email" autocomplete="username" value="giledwardsmusic@gmail.com" required>
+        <input id="loginPassword" type="hidden" value="">
+        <button class="btn primary wide" type="submit">Open app</button>
       </form>
       <button id="bootstrapBtn" class="btn primary wide hidden" type="button">Initialize owner account</button>
       <p id="loginError" class="error"></p>
@@ -43,6 +43,6 @@
   </div>
   <div id="toast" class="toast hidden"></div>
   <dialog id="modal"><div id="modalBody"></div></dialog>
-  <script type="module" src="/autopilot.js?v=2"></script>
+  <script type="module" src="/autopilot.js?v=3"></script>
 </body>
 </html>
