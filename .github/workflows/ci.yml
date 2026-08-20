@@ -13,7 +13,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
       - run: npm install
       - run: npm test
       - name: Syntax check
@@ -29,4 +28,5 @@ jobs:
           node --check src/lib/schema-bootstrap.js
           node --check src/lib/security.js
           node --check src/lib/utils.js
+          node --check public/autopilot.js
           node --check public/app.js
