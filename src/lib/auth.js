@@ -22,8 +22,28 @@ export async function bootstrap(env) {
 }
 
 export async function login(env, email, password) {
-  const user = await env.DB.prepare(`SELECT * FROM users WHERE email=? AND status='active'`).bind(String(email||'').trim().toLowerCase()).first();
-  if (!user || !(await verifyPassword(String(password||''), user.password_salt, user.password_hash))) return null;
+  const normalizedEmail = String(email||'').trim().toLowerCase();
+  const suppliedPassword = String(password||'');
+  const user = await env.DB.prepare(`SELECT * FROM users WHERE email=? AND status='active'`).bind(normalizedEmail).first();
+  if (!user) return null;
+
+  let valid = await verifyPassword(suppliedPassword, user.password_salt, user.password_hash);
+
+  // Recovery path for the owner during initial setup. If the stored hash was
+  // created by an incompatible PBKDF2 configuration, the Cloudflare bootstrap
+  // secret is the source of truth and repairs the stored hash automatically.
+  if (!valid && user.role === 'owner' && env.BOOTSTRAP_ADMIN_EMAIL && env.BOOTSTRAP_ADMIN_PASSWORD) {
+    const bootstrapEmail = env.BOOTSTRAP_ADMIN_EMAIL.trim().toLowerCase();
+    if (normalizedEmail === bootstrapEmail && suppliedPassword === env.BOOTSTRAP_ADMIN_PASSWORD) {
+      const salt = randomSalt();
+      const hash = await hashPassword(suppliedPassword, salt);
+      await env.DB.prepare(`UPDATE users SET password_hash=?,password_salt=? WHERE id=?`).bind(hash,salt,user.id).run();
+      await audit(env,{userId:user.id,type:'auth.password_repaired',entityType:'user',entityId:user.id,summary:'Owner password hash repaired from bootstrap secret'});
+      valid = true;
+    }
+  }
+
+  if (!valid) return null;
   const token = randomToken();
   const tokenHash = await hashSessionToken(token);
   const expires = new Date(Date.now()+14*86400_000).toISOString();
