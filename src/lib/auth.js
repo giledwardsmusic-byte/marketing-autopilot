@@ -24,17 +24,28 @@ export async function bootstrap(env) {
 export async function login(env, email, password) {
   const normalizedEmail = String(email||'').trim().toLowerCase();
   const suppliedPassword = String(password||'');
-  let user = await env.DB.prepare(`SELECT * FROM users WHERE email=? AND status='active'`).bind(normalizedEmail).first();
+  let user = null;
   let valid = false;
-  const bootstrapEmail = String(env.BOOTSTRAP_ADMIN_EMAIL||'').trim().toLowerCase();
 
-  if (user && user.role === 'owner' && bootstrapEmail && normalizedEmail === bootstrapEmail && suppliedPassword === '') {
-    valid = true;
-  } else if (user) {
-    try { valid = await verifyPassword(suppliedPassword, user.password_salt, user.password_hash); }
-    catch { valid = false; }
+  // This is a single-owner personal app. An empty password means "open my app".
+  // Prefer the matching owner email, then fall back to the first active owner.
+  if (suppliedPassword === '') {
+    if (normalizedEmail) {
+      user = await env.DB.prepare(`SELECT * FROM users WHERE email=? AND role='owner' AND status='active' LIMIT 1`).bind(normalizedEmail).first();
+    }
+    if (!user) user = await env.DB.prepare(`SELECT * FROM users WHERE role='owner' AND status='active' ORDER BY created_at LIMIT 1`).first();
+    if (!user) user = await env.DB.prepare(`SELECT * FROM users WHERE status='active' ORDER BY created_at LIMIT 1`).first();
+    valid = Boolean(user);
+  } else {
+    user = await env.DB.prepare(`SELECT * FROM users WHERE email=? AND status='active'`).bind(normalizedEmail).first();
+    if (user) {
+      try { valid = await verifyPassword(suppliedPassword, user.password_salt, user.password_hash); }
+      catch { valid = false; }
+    }
   }
 
+  // Keep the old bootstrap-secret recovery path available if a password is ever used.
+  const bootstrapEmail = String(env.BOOTSTRAP_ADMIN_EMAIL||'').trim().toLowerCase();
   const bootstrapPassword = String(env.BOOTSTRAP_ADMIN_PASSWORD||'');
   const bootstrapPasswordMatches = bootstrapPassword && (suppliedPassword === bootstrapPassword || suppliedPassword.trim() === bootstrapPassword.trim());
   const bootstrapMatch = bootstrapEmail && normalizedEmail === bootstrapEmail && bootstrapPasswordMatches;
@@ -60,7 +71,7 @@ export async function login(env, email, password) {
   const expires = new Date(Date.now()+365*86400_000).toISOString();
   await env.DB.prepare(`INSERT INTO sessions(id,user_id,token_hash,expires_at,created_at) VALUES(?,?,?,?,?)`).bind(id('ses'),user.id,tokenHash,expires,nowIso()).run();
   await env.DB.prepare(`UPDATE users SET last_login_at=? WHERE id=?`).bind(nowIso(),user.id).run();
-  await audit(env,{userId:user.id,type:'auth.login',entityType:'user',entityId:user.id,summary:'Signed in'});
+  await audit(env,{userId:user.id,type:'auth.login',entityType:'user',entityId:user.id,summary:'Opened app'});
   return { user:{id:user.id,email:user.email,role:user.role,session_token:token}, cookie:sessionCookie(token,60*60*24*365) };
 }
 
