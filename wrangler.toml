@@ -9,7 +9,7 @@ binding = "STATIC"
 [[d1_databases]]
 binding = "DB"
 database_name = "marketing-autopilot"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "614d603d-1d82-4751-8e0d-143026c83813"
 migrations_dir = "migrations"
 
 [[r2_buckets]]
