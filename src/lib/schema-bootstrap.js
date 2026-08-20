@@ -1,6 +1,4 @@
-const SCHEMA_SQL = String.raw`PRAGMA foreign_keys = ON;
-
-CREATE TABLE IF NOT EXISTS users (
+const SCHEMA_SQL = String.raw`CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
@@ -256,6 +254,9 @@ let schemaReady = false;
 export async function ensureSchema(env) {
   if (schemaReady) return;
   const row = await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").first();
-  if (!row) await env.DB.exec(SCHEMA_SQL);
+  if (!row) {
+    const statements = SCHEMA_SQL.split(';').map(s => s.trim()).filter(Boolean);
+    await env.DB.batch(statements.map(sql => env.DB.prepare(sql)));
+  }
   schemaReady = true;
 }
