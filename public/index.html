@@ -2,52 +2,47 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#101828">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#1b1f1d">
   <title>Marketing Autopilot</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/autopilot.css?v=2">
 </head>
 <body>
-  <div id="auth" class="auth-shell hidden">
-    <section class="auth-card">
-      <div class="brandmark">MA</div>
+  <div id="login" class="login-screen hidden">
+    <div class="login-box">
+      <div class="login-mark">MA</div>
       <h1>Marketing Autopilot</h1>
-      <p id="auth-note">Sign in to manage your marketing system.</p>
-      <form id="login-form" class="stack">
-        <label>Email<input id="login-email" type="email" autocomplete="username" required></label>
-        <label>Password<input id="login-password" type="password" autocomplete="current-password" required></label>
-        <button class="primary" type="submit">Sign in</button>
+      <p id="loginNote" class="sub">Sign in to see what's running.</p>
+      <form id="loginForm">
+        <label>Email</label><input id="loginEmail" type="email" autocomplete="username" required>
+        <label>Password</label><input id="loginPassword" type="password" autocomplete="current-password" required>
+        <button class="btn primary wide" type="submit">Sign in</button>
       </form>
-      <button id="bootstrap-btn" class="secondary hidden">Initialize owner account</button>
-      <p id="auth-error" class="error"></p>
-    </section>
+      <button id="bootstrapBtn" class="btn primary wide hidden" type="button">Initialize owner account</button>
+      <p id="loginError" class="error"></p>
+    </div>
   </div>
 
-  <div id="app" class="app-shell hidden">
-    <header class="topbar">
-      <div>
-        <div class="eyebrow">MARKETING AUTOPILOT</div>
-        <h1 id="page-title">Dashboard</h1>
-      </div>
-      <button id="logout-btn" class="ghost">Sign out</button>
+  <div id="app" class="app hidden">
+    <header class="status-strip">
+      <div id="healthOrb" class="orb green"></div>
+      <div id="healthLabel" class="status-label">Checking system…</div>
+      <div class="status-title">Autopilot</div>
+      <button id="signout" class="signout">Sign out</button>
     </header>
-
-    <main id="main" class="main"></main>
-
-    <nav class="bottom-nav" aria-label="Primary">
-      <button data-view="dashboard" class="nav-btn active"><span>⌂</span><small>Dashboard</small></button>
-      <button data-view="week" class="nav-btn"><span>▦</span><small>This Week</small></button>
-      <button data-view="products" class="nav-btn"><span>□</span><small>Products</small></button>
-      <button data-view="creative" class="nav-btn"><span>◫</span><small>Creative</small></button>
-      <button data-view="performance" class="nav-btn"><span>↗</span><small>Results</small></button>
-      <button data-view="attention" class="nav-btn"><span>!</span><small>Attention</small></button>
-      <button data-view="settings" class="nav-btn"><span>⚙</span><small>Settings</small></button>
+    <main id="main" class="main"><div class="empty">Loading…</div></main>
+    <nav class="tabs" aria-label="Primary">
+      <button data-tab="dashboard" class="active">Dashboard</button>
+      <button data-tab="week">This Week</button>
+      <button data-tab="products">Products</button>
+      <button data-tab="library">Library</button>
+      <button data-tab="performance">Results</button>
+      <button data-tab="attention">Attention<span id="attnDot" class="dot hidden"></span></button>
+      <button data-tab="settings">Settings</button>
     </nav>
   </div>
-
   <div id="toast" class="toast hidden"></div>
-  <dialog id="modal"><div id="modal-body"></div></dialog>
-  <script src="/session-fix.js"></script>
-  <script type="module" src="/app.js"></script>
+  <dialog id="modal"><div id="modalBody"></div></dialog>
+  <script type="module" src="/autopilot.js?v=2"></script>
 </body>
 </html>
