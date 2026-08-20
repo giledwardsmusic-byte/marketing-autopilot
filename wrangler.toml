@@ -1,0 +1,28 @@
+name = "marketing-autopilot"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+[assets]
+directory = "./public"
+binding = "STATIC"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "marketing-autopilot"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "MEDIA"
+bucket_name = "marketing-autopilot-media"
+
+[triggers]
+crons = ["*/5 * * * *", "17 3 * * *"]
+
+[vars]
+APP_NAME = "Marketing Autopilot"
+APP_ORIGIN = "http://localhost:8787"
+AI_PROVIDER = "none"
+AI_MODEL = ""
+APPROVED_MONTHLY_COST_CENTS = "0"
+AUTOPILOT_ENABLED = "true"
