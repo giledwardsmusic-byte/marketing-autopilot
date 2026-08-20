@@ -18,9 +18,11 @@ jobs:
       - run: npm test
       - name: Syntax check
         run: |
+          node --check src/entry.js
           node --check src/index.js
           node --check src/lib/ai.js
           node --check src/lib/auth.js
+          node --check src/lib/autopilot-maintenance.js
           node --check src/lib/campaign-engine.js
           node --check src/lib/db.js
           node --check src/lib/publishers.js
