@@ -2,6 +2,7 @@ import base from './index.js';
 import { ensureAutopilotCampaigns } from './lib/autopilot-maintenance.js';
 import { health, resolveHealth } from './lib/db.js';
 import { ensureSchema } from './lib/schema-bootstrap.js';
+import { ensureSandboxConnectors } from './lib/sandbox.js';
 import { currentUser } from './lib/auth.js';
 import { nowIso } from './lib/utils.js';
 
@@ -25,12 +26,14 @@ async function approveWholeWeek(request,env){
 export default {
   async fetch(request,env,ctx){
     await ensureSchema(env);
+    await ensureSandboxConnectors(env);
     const url=new URL(request.url);
     if(url.pathname==='/api/week/approve'&&request.method==='POST')return approveWholeWeek(request,env);
     return base.fetch(request,env,ctx);
   },
   async scheduled(controller,env,ctx){
     await ensureSchema(env);
+    await ensureSandboxConnectors(env);
     await base.scheduled(controller,env,ctx);
     if(controller.cron==='17 3 * * *'){
       try{
