@@ -5,56 +5,54 @@ import { eligibleConnectors, publishOne } from '../src/lib/publishers.js';
 function fakeEnv({ connectors = [], settings = {}, usedCents = 0 } = {}) {
   const rows = connectors.map(x => ({ ...x }));
   const updates = [];
-  const DB = {
-    prepare(sql) {
-      return {
-        bind(...args) {
+
+  function statement(sql, args = []) {
+    return {
+      bind(...nextArgs) { return statement(sql, nextArgs); },
+      async first() {
+        if (sql.includes('SELECT value_json FROM settings WHERE key=?')) {
+          const [key] = args;
+          return Object.prototype.hasOwnProperty.call(settings, key)
+            ? { value_json: JSON.stringify(settings[key]) }
+            : null;
+        }
+        if (sql.includes('COALESCE(SUM(amount_cents),0) used FROM cost_usage')) {
+          return { used: usedCents };
+        }
+        throw new Error(`Unexpected first SQL: ${sql}`);
+      },
+      async all() {
+        if (sql.includes('SELECT * FROM connectors WHERE platform=? AND enabled=1')) {
+          const [platform] = args;
           return {
-            async first() {
-              if (sql.includes('SELECT value_json FROM settings WHERE key=?')) {
-                const [key] = args;
-                return Object.prototype.hasOwnProperty.call(settings, key)
-                  ? { value_json: JSON.stringify(settings[key]) }
-                  : null;
-              }
-              if (sql.includes('COALESCE(SUM(amount_cents),0) used FROM cost_usage')) {
-                return { used: usedCents };
-              }
-              throw new Error(`Unexpected first SQL: ${sql}`);
-            },
-            async all() {
-              if (sql.includes('SELECT * FROM connectors WHERE platform=? AND enabled=1')) {
-                const [platform] = args;
-                return {
-                  results: rows
-                    .filter(r => r.platform === platform && r.enabled === 1)
-                    .sort((a, b) => Number(a.priority || 0) - Number(b.priority || 0) || Number(a.cost_cents_per_post || 0) - Number(b.cost_cents_per_post || 0))
-                };
-              }
-              throw new Error(`Unexpected all SQL: ${sql}`);
-            },
-            async run() {
-              if (sql.includes('UPDATE connectors SET last_success_at=')) {
-                const [lastSuccessAt, updatedAt, id] = args;
-                updates.push({ type: 'success', id, lastSuccessAt, updatedAt });
-                return { meta: { changes: 1 } };
-              }
-              if (sql.includes('UPDATE connectors SET last_error_at=')) {
-                const [lastErrorAt, lastError, updatedAt, id] = args;
-                updates.push({ type: 'error', id, lastErrorAt, lastError, updatedAt });
-                return { meta: { changes: 1 } };
-              }
-              if (sql.includes('INSERT INTO cost_usage')) {
-                updates.push({ type: 'cost' });
-                return { meta: { changes: 1 } };
-              }
-              throw new Error(`Unexpected run SQL: ${sql}`);
-            }
+            results: rows
+              .filter(r => r.platform === platform && r.enabled === 1)
+              .sort((a, b) => Number(a.priority || 0) - Number(b.priority || 0) || Number(a.cost_cents_per_post || 0) - Number(b.cost_cents_per_post || 0))
           };
         }
-      };
-    }
-  };
+        throw new Error(`Unexpected all SQL: ${sql}`);
+      },
+      async run() {
+        if (sql.includes('UPDATE connectors SET last_success_at=')) {
+          const [lastSuccessAt, updatedAt, id] = args;
+          updates.push({ type: 'success', id, lastSuccessAt, updatedAt });
+          return { meta: { changes: 1 } };
+        }
+        if (sql.includes('UPDATE connectors SET last_error_at=')) {
+          const [lastErrorAt, lastError, updatedAt, id] = args;
+          updates.push({ type: 'error', id, lastErrorAt, lastError, updatedAt });
+          return { meta: { changes: 1 } };
+        }
+        if (sql.includes('INSERT INTO cost_usage')) {
+          updates.push({ type: 'cost' });
+          return { meta: { changes: 1 } };
+        }
+        throw new Error(`Unexpected run SQL: ${sql}`);
+      }
+    };
+  }
+
+  const DB = { prepare(sql) { return statement(sql); } };
   return { env: { DB, APP_ORIGIN: 'https://example.test' }, rows, updates };
 }
 
