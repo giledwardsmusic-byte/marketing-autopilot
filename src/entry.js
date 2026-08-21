@@ -8,6 +8,26 @@ import { assertSameOrigin } from './lib/security.js';
 import { nowIso } from './lib/utils.js';
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8'}});
+const SCHEDULER_LEASE_KEY='scheduler:lease';
+const SCHEDULER_LEASE_MS=10*60*1000;
+
+export async function acquireSchedulerLease(env, now=new Date()){
+  const token=crypto.randomUUID();
+  const acquiredAt=now.toISOString();
+  const expiresAt=new Date(now.getTime()+SCHEDULER_LEASE_MS).toISOString();
+  const value=JSON.stringify({token,acquired_at:acquiredAt,expires_at:expiresAt});
+  const result=await env.DB.prepare(`INSERT INTO settings(key,value_json,updated_at) VALUES(?,?,?)
+    ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at
+    WHERE json_extract(settings.value_json,'$.expires_at') IS NULL OR json_extract(settings.value_json,'$.expires_at')<=?`)
+    .bind(SCHEDULER_LEASE_KEY,value,acquiredAt,acquiredAt).run();
+  return Number(result.meta?.changes||0)>0?token:null;
+}
+
+export async function releaseSchedulerLease(env, token){
+  if(!token)return;
+  await env.DB.prepare(`DELETE FROM settings WHERE key=? AND json_extract(value_json,'$.token')=?`)
+    .bind(SCHEDULER_LEASE_KEY,token).run();
+}
 
 async function approveWholeWeek(request,env){
   if(!assertSameOrigin(request,env))return json({error:'Origin rejected'},403);
@@ -36,14 +56,20 @@ export default {
   async scheduled(controller,env,ctx){
     await ensureSchema(env);
     await ensureSandboxConnectors(env);
-    await base.scheduled(controller,env,ctx);
-    if(controller.cron==='17 3 * * *'){
-      try{
-        await ensureAutopilotCampaigns(env);
-        await resolveHealth(env,'autopilot:campaigns');
-      }catch(e){
-        await health(env,'autopilot:campaigns','yellow',`Autopilot campaign preparation failed: ${String(e.message||e).slice(0,220)}`);
+    const leaseToken=await acquireSchedulerLease(env);
+    if(!leaseToken)return;
+    try{
+      await base.scheduled(controller,env,ctx);
+      if(controller.cron==='17 3 * * *'){
+        try{
+          await ensureAutopilotCampaigns(env);
+          await resolveHealth(env,'autopilot:campaigns');
+        }catch(e){
+          await health(env,'autopilot:campaigns','yellow',`Autopilot campaign preparation failed: ${String(e.message||e).slice(0,220)}`);
+        }
       }
+    }finally{
+      await releaseSchedulerLease(env,leaseToken);
     }
   }
 };
