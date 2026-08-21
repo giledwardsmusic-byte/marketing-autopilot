@@ -32,7 +32,7 @@ function fakeEnv(initial = []) {
                 for (const r of rows) if (r.platform === platform && r.connector_type === 'sandbox') r.enabled = r.id === keepId ? 1 : 0;
                 return { meta: { changes: 1 } };
               }
-              if (sql.includes("INSERT INTO connectors") && sql.includes("'sandbox'")) {
+              if (sql.includes("INSERT INTO connectors")) {
                 const [id, name, connectorType, platform, createdAt, updatedAt] = args;
                 rows.push({ id, name, connector_type: connectorType, platform, enabled: 1, priority: 999, cost_cents_per_post: 0, created_at: createdAt, updated_at: updatedAt });
                 return { meta: { changes: 1 } };
