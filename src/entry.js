@@ -4,11 +4,13 @@ import { health, resolveHealth } from './lib/db.js';
 import { ensureSchema } from './lib/schema-bootstrap.js';
 import { ensureSandboxConnectors } from './lib/sandbox.js';
 import { currentUser } from './lib/auth.js';
+import { assertSameOrigin } from './lib/security.js';
 import { nowIso } from './lib/utils.js';
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8'}});
 
 async function approveWholeWeek(request,env){
+  if(!assertSameOrigin(request,env))return json({error:'Origin rejected'},403);
   const user=await currentUser(env,request);
   if(!user)return json({error:'Authentication required'},401);
   if(user.role==='viewer')return json({error:'Viewer accounts are read-only'},403);
