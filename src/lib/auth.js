@@ -27,14 +27,12 @@ export async function login(env, email, password) {
   let user = null;
   let valid = false;
 
-  // This is a single-owner personal app. An empty password means "open my app".
-  // Prefer the matching owner email, then fall back to the first active owner.
+  // Single-owner convenience mode: an empty password may open only the exact
+  // active owner account identified by email. Never fall back to another user.
   if (suppliedPassword === '') {
     if (normalizedEmail) {
       user = await env.DB.prepare(`SELECT * FROM users WHERE email=? AND role='owner' AND status='active' LIMIT 1`).bind(normalizedEmail).first();
     }
-    if (!user) user = await env.DB.prepare(`SELECT * FROM users WHERE role='owner' AND status='active' ORDER BY created_at LIMIT 1`).first();
-    if (!user) user = await env.DB.prepare(`SELECT * FROM users WHERE status='active' ORDER BY created_at LIMIT 1`).first();
     valid = Boolean(user);
   } else {
     user = await env.DB.prepare(`SELECT * FROM users WHERE email=? AND status='active'`).bind(normalizedEmail).first();
@@ -44,7 +42,7 @@ export async function login(env, email, password) {
     }
   }
 
-  // Keep the old bootstrap-secret recovery path available if a password is ever used.
+  // Keep the bootstrap-secret recovery path available if a password is ever used.
   const bootstrapEmail = String(env.BOOTSTRAP_ADMIN_EMAIL||'').trim().toLowerCase();
   const bootstrapPassword = String(env.BOOTSTRAP_ADMIN_PASSWORD||'');
   const bootstrapPasswordMatches = bootstrapPassword && (suppliedPassword === bootstrapPassword || suppliedPassword.trim() === bootstrapPassword.trim());
