@@ -25,6 +25,7 @@ jobs:
           node --check src/lib/campaign-engine.js
           node --check src/lib/db.js
           node --check src/lib/publishers.js
+          node --check src/lib/sandbox.js
           node --check src/lib/schema-bootstrap.js
           node --check src/lib/security.js
           node --check src/lib/utils.js
