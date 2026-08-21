@@ -22,6 +22,21 @@ test('plan creates requested frequency and alternates products where possible',(
   assert.ok(plan[0].trackingUrl.includes('/r/'));
 });
 
+test('default multi-platform cadence creates the expected weekly workload',()=>{
+  const postingPolicy={
+    facebook:{per_day:2,times:['09:15','18:45']},
+    instagram:{per_day:1,times:['12:15']},
+    tiktok:{per_day:1,times:['19:30']},
+    pinterest:{per_day:5,times:['07:30','10:30','13:30','17:00','20:30']},
+    email:{per_week:1,times:['10:00']}
+  };
+  const plan=generatePlan({products,assets,copyItems:copy,postingPolicy,startISO:'2026-08-24T00:00:00.000Z',origin:'https://app.example.com',timeZone:'America/Chicago'});
+  assert.equal(plan.length,64);
+  const counts=plan.reduce((acc,item)=>{acc[item.platform]=(acc[item.platform]||0)+1;return acc;},{});
+  assert.deepEqual(counts,{facebook:14,instagram:7,tiktok:7,pinterest:35,email:1});
+  assert.equal(new Set(plan.map(x=>x.trackingCode)).size,64);
+});
+
 test('performance policy can rise or fall within bounds',()=>{
   const base={facebook:{per_day:2,times:['09:00','18:00']},instagram:{per_day:1,times:['12:00']}};
   const next=adaptPostingPolicy(base,{facebook:{impressions:1000,clicks:40,conversions:3},instagram:{impressions:1000,clicks:1,conversions:0}},{minimum_impressions:300});
