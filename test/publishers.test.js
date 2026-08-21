@@ -93,3 +93,39 @@ test('zero-dollar cost ceiling excludes paid publishing routes', async () => {
   const eligible = await eligibleConnectors(env, 'facebook');
   assert.deepEqual(eligible.map(c => c.id), ['sandbox-facebook']);
 });
+
+test('invalid real connector fails preflight and falls through to sandbox without network call', async () => {
+  const { env, updates } = fakeEnv({
+    connectors: [
+      { id: 'real-facebook', name: 'Facebook direct', connector_type: 'meta_facebook', platform: 'facebook', enabled: 1, priority: 1, cost_cents_per_post: 0, config_json: '{}' },
+      { id: 'sandbox-facebook', name: 'Sandbox facebook', connector_type: 'sandbox', platform: 'facebook', enabled: 1, priority: 999, cost_cents_per_post: 0, config_json: '{}' }
+    ],
+    settings: {
+      cost_control: { approved_monthly_cost_cents: 0 },
+      runtime_origin: { origin: 'https://example.test' }
+    }
+  });
+
+  const originalFetch = globalThis.fetch;
+  let networkCalls = 0;
+  globalThis.fetch = async () => { networkCalls++; throw new Error('network should not be called'); };
+  try {
+    const result = await publishOne(env, {
+      id: 'post-2',
+      platform: 'facebook',
+      caption: 'Preflight fallback test',
+      public_token: null
+    });
+
+    assert.equal(result.state, 'simulated');
+    assert.equal(result.connector.id, 'sandbox-facebook');
+    assert.equal(networkCalls, 0);
+    const preflightError = updates.find(x => x.type === 'error' && x.id === 'real-facebook');
+    assert.ok(preflightError);
+    assert.match(preflightError.lastError, /Preflight:/);
+    assert.match(preflightError.lastError, /credential is not stored/);
+    assert.match(preflightError.lastError, /page_id is missing/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
