@@ -73,7 +73,7 @@ export async function syncBufferMetrics(env){
       const impressions=byType.impressions||0, reach=byType.reach||0, clicks=byType.clicks||byType.linkclicks||0;
       const engagements=byType.engagements||byType.engagement||((byType.reactions||0)+(byType.comments||0)+(byType.shares||0));
       await env.DB.prepare(`INSERT INTO metrics(id,post_id,platform,source,impressions,reach,engagements,clicks,landing_visits,conversions,revenue_cents,captured_at) VALUES(?,?,?,?,?,?,?,?,0,0,0,?) ON CONFLICT(post_id,source) DO UPDATE SET impressions=excluded.impressions,reach=excluded.reach,engagements=excluded.engagements,clicks=excluded.clicks,captured_at=excluded.captured_at`).bind(`met_buffer_${row.id}`,row.id,row.platform,'buffer',impressions,reach,engagements,clicks,nowIso()).run(); synced++;
-    }catch(e){await env.DB.prepare(`UPDATE connectors SET last_error_at=?,last_error=?,updated_at=? WHERE id=?`).bind(nowIso(),`Metrics sync: ${String(e.message||e).slice(0,800),nowIso(),row.connector_id).run();}
+    }catch(e){await env.DB.prepare(`UPDATE connectors SET last_error_at=?,last_error=?,updated_at=? WHERE id=?`).bind(nowIso(),`Metrics sync: ${String(e.message||e).slice(0,800)}`,nowIso(),row.connector_id).run();}
   }
   return synced;
 }
