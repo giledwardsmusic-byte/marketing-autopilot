@@ -59,9 +59,13 @@ function bytesToB64(bytes){ return btoa(String.fromCharCode(...bytes)); }
 function b64ToBytes(s){ return Uint8Array.from(atob(s), c=>c.charCodeAt(0)); }
 async function importCredentialKey(env){
   if(env.CREDENTIAL_ENCRYPTION_KEY){
-    const raw=b64ToBytes(env.CREDENTIAL_ENCRYPTION_KEY);
-    if(raw.length!==32) throw new Error('CREDENTIAL_ENCRYPTION_KEY must be base64 for exactly 32 bytes');
-    return crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['encrypt','decrypt']);
+    const supplied=String(env.CREDENTIAL_ENCRYPTION_KEY);
+    try{
+      const raw=b64ToBytes(supplied);
+      if(raw.length===32) return crypto.subtle.importKey('raw',raw,{name:'AES-GCM'},false,['encrypt','decrypt']);
+    }catch{}
+    const digest=await crypto.subtle.digest('SHA-256',enc.encode(`marketing-autopilot:credential-key:v1:${supplied}`));
+    return crypto.subtle.importKey('raw',digest,{name:'AES-GCM'},false,['encrypt','decrypt']);
   }
   if(env.BOOTSTRAP_ADMIN_PASSWORD){
     const material=enc.encode(`marketing-autopilot:credential-key:v1:${env.BOOTSTRAP_ADMIN_PASSWORD}`);
