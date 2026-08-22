@@ -3,6 +3,7 @@ import { ensureAutopilotCampaigns } from './lib/autopilot-maintenance.js';
 import { health, resolveHealth } from './lib/db.js';
 import { ensureSchema } from './lib/schema-bootstrap.js';
 import { ensureSandboxConnectors } from './lib/sandbox.js';
+import { ensureTableRockPressSeed } from './lib/table-rock-seed.js';
 import { currentUser } from './lib/auth.js';
 import { assertSameOrigin } from './lib/security.js';
 import { nowIso } from './lib/utils.js';
@@ -45,17 +46,21 @@ async function approveWholeWeek(request,env){
   return json({ok:true,approved:Number(result.meta?.changes||0),campaign_id:campaign.id});
 }
 
+async function prepareRuntime(env){
+  await ensureSchema(env);
+  await ensureSandboxConnectors(env);
+  await ensureTableRockPressSeed(env);
+}
+
 export default {
   async fetch(request,env,ctx){
-    await ensureSchema(env);
-    await ensureSandboxConnectors(env);
+    await prepareRuntime(env);
     const url=new URL(request.url);
     if(url.pathname==='/api/week/approve'&&request.method==='POST')return approveWholeWeek(request,env);
     return base.fetch(request,env,ctx);
   },
   async scheduled(controller,env,ctx){
-    await ensureSchema(env);
-    await ensureSandboxConnectors(env);
+    await prepareRuntime(env);
     const leaseToken=await acquireSchedulerLease(env);
     if(!leaseToken)return;
     try{
