@@ -1,0 +1,28 @@
+{
+  "brand": "Table Rock Press",
+  "drive_source": {
+    "folder_id": "13V50CtAtjWRZ0H_F9kBbjDdWBdsjxxDE",
+    "folder_url": "https://drive.google.com/drive/folders/13V50CtAtjWRZ0H_F9kBbjDdWBdsjxxDE",
+    "mode": "read_write_planned",
+    "archive_policy": "single_source_archive"
+  },
+  "copy_bank": {
+    "folder_id": "1CkL0vFmPvRQjh6gFkb6TQUD0jprwcPWX",
+    "name": "Marketing Copy Bank",
+    "status": "created"
+  },
+  "verified_content": {
+    "buddy": {"graphics": 16, "copy_source_document_id": "1niwfvlw8bexcjW9CGGMFBFKj0aNb7T9J_5bZj-u6Csw", "copy_items_imported": 5},
+    "brindle": {"graphics": 15},
+    "lily": {"graphics": 13},
+    "finn": {"graphics": 5},
+    "tully": {"graphics": 6},
+    "oliver": {"graphics": 7},
+    "sage_nut": {"graphics": 5},
+    "other_campaigns": {"fear_graphics": 8, "jesus_graphics": 6, "pill_graphics": 6}
+  },
+  "publishing_gate": {
+    "live_publish_allowed": false,
+    "reason": "Real Table Rock Press content must be loaded into the deployed app and sandbox-verified before first live publishing test."
+  }
+}
