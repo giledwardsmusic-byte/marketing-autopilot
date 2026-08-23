@@ -27,9 +27,11 @@ export function connectorPreflight(connector, post={}) {
       if (!post.public_token) errors.push('Pinterest requires an approved graphic');
     }
     if (type==='tiktok') {
-      if (!cfg.creator_id) errors.push('TikTok creator_id is missing');
       if (!post.public_token) errors.push('TikTok requires approved media');
-      if (!['video/mp4','video/quicktime'].includes(post.mime_type||'')) errors.push('TikTok direct publishing requires MP4 or QuickTime video');
+      const mime=post.mime_type||'';
+      const okVideo=['video/mp4','video/quicktime'].includes(mime);
+      const okPhoto=mime==='image/jpeg';
+      if (!okVideo && !okPhoto) errors.push('TikTok direct publishing requires MP4/QuickTime video or normalized JPEG photo media');
     }
     if (type==='mailerlite') {
       for (const key of ['from','from_name','group_id','html_template']) if (!cfg[key]) errors.push(`MailerLite ${key} is missing`);
