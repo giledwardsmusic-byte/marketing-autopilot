@@ -41,7 +41,11 @@ export function validateOriginalForPlatform(platform,row){
     if(!['image/jpeg','image/png','image/webp'].includes(mime))return {ok:false,reason:`Facebook fallback does not accept ${mime}`};
     return {ok:true};
   }
-  if(p==='tiktok')return {ok:false,reason:'TikTok static-image direct publishing is not enabled; vertical video/media route must be used'};
+  if(p==='tiktok'){
+    if(!['image/jpeg','image/webp'].includes(mime))return {ok:false,reason:`TikTok photo fallback does not accept ${mime}`};
+    if(Math.max(w,h)>1920||Math.min(w,h)>1080)return {ok:false,reason:'TikTok photo fallback exceeds 1080p image limit'};
+    return {ok:true};
+  }
   return {ok:false,reason:`unsupported platform ${platform}`};
 }
 
