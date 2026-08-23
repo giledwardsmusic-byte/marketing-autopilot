@@ -18,3 +18,9 @@ APP_ORIGIN=http://localhost:8787
 CREDENTIAL_ENCRYPTION_KEY=
 # Optional: enables signed Payhip paid/refunded webhook tracking.
 PAYHIP_API_KEY=
+
+# Optional free-first outbound alerts via Resend.
+# Leave blank to keep email alerts disabled. Never commit the real API key.
+RESEND_API_KEY=
+ALERT_EMAIL_TO=
+ALERT_EMAIL_FROM=
