@@ -35,8 +35,14 @@ test('Instagram fallback requires JPEG and accepted feed aspect ratio',()=>{
   assert.equal(validateOriginalForPlatform('instagram',{mime_type:'image/jpeg',size_bytes:500000,width:600,height:1200}).ok,false);
 });
 
-test('fallback fails closed for unknown dimensions, oversized files and TikTok static images',()=>{
+test('TikTok photo fallback accepts JPEG/WebP at 1080p and rejects PNG/oversize',()=>{
+  assert.equal(validateOriginalForPlatform('tiktok',{mime_type:'image/jpeg',size_bytes:1000,width:1080,height:1920}).ok,true);
+  assert.equal(validateOriginalForPlatform('tiktok',{mime_type:'image/webp',size_bytes:1000,width:1080,height:1920}).ok,true);
+  assert.equal(validateOriginalForPlatform('tiktok',{mime_type:'image/png',size_bytes:1000,width:1080,height:1920}).ok,false);
+  assert.equal(validateOriginalForPlatform('tiktok',{mime_type:'image/jpeg',size_bytes:1000,width:1440,height:2560}).ok,false);
+});
+
+test('fallback fails closed for unknown dimensions and oversized files',()=>{
   assert.equal(validateOriginalForPlatform('facebook',{mime_type:'image/jpeg',size_bytes:1000,width:null,height:null}).ok,false);
   assert.equal(validateOriginalForPlatform('pinterest',{mime_type:'image/jpeg',size_bytes:21*1024*1024,width:1000,height:1500}).ok,false);
-  assert.equal(validateOriginalForPlatform('tiktok',{mime_type:'image/jpeg',size_bytes:1000,width:1080,height:1920}).ok,false);
 });
