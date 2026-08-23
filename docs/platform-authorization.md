@@ -30,6 +30,8 @@ Verification before first post:
 4. First live test uses approved Marketing Copy Bank text and approved Table Rock Press art.
 5. Record returned Instagram media ID and connector success timestamp.
 
+Current state: prepared; external authorization/ID verification remains before live test.
+
 ## 2. Pinterest
 
 Connector type: `pinterest`
@@ -47,6 +49,8 @@ Verification before first Pin:
 4. Tracking link is generated when a campaign tracking code exists.
 5. Record returned Pin ID and connector success timestamp.
 
+Current state: prepared; external authorization/board verification remains before live test.
+
 ## 3. TikTok
 
 Connector type: `tiktok`
@@ -54,18 +58,20 @@ Connector type: `tiktok`
 Required connector data:
 - encrypted TikTok access token with Content Posting authorization
 - `config_json.creator_id`
-- approved MP4 or QuickTime video with a public HTTPS media URL
+- approved supported media with a public HTTPS media URL
 
-The direct-post core already queries creator information, validates an allowed privacy level, initializes a PULL_FROM_URL video post, and can fetch post status. The generic publisher dispatcher must be wired to this direct-post core before TikTok is considered publish-ready.
+The direct-post core is wired into the generic publisher dispatcher. It queries creator information, validates an allowed privacy level, supports direct video/photo initialization as implemented, and can fetch post status. Platform-specific media normalization/fallback rules apply before the media URL reaches the connector.
 
 Verification before first TikTok test:
 1. Store token encrypted.
 2. Confirm creator ID/config.
-3. Confirm MP4/QuickTime approved media.
+3. Confirm approved supported media.
 4. Run preflight.
 5. Query creator info before posting.
 6. Use an allowed privacy setting; testing should remain private when platform/app status requires it.
 7. Record publish ID and poll status.
+
+Current state: prepared; external Content Posting authorization and creator/domain verification remain before live test.
 
 ## Google Drive source/archive
 
@@ -75,7 +81,14 @@ Marketing Copy Bank folder ID: `1CkL0vFmPvRQjh6gFkb6TQUD0jprwcPWX`
 
 Marketing Copy Bank document ID: `173q8LAdNffIprY8DwULTryvy2bRj3IyZ5Mo4VhMwJxA`
 
-Drive read and write access have been verified. The copy bank contains real Table Rock Press / Whispering Forest copy. The application seed must remain source-backed and idempotent.
+Drive read and write access have been verified. The copy bank contains real Table Rock Press / Whispering Forest copy, including source-backed Buddy material and an inventory of Whispering Forest assets. The application seed must remain source-backed and idempotent.
+
+## Notifications and media safety
+
+- Needs Attention/health events and Payhip paid-sale events have notification code paths.
+- Email is the preferred free-first external alert channel; SMS remains disabled unless cost is explicitly approved.
+- Platform media variants are generated without modifying originals.
+- Transformation/quota failure must validate the original before fallback. A valid original may publish with a warning; an invalid original must fail closed and raise Needs Attention rather than publish broken media.
 
 ## Live-test gate
 
