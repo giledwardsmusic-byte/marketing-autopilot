@@ -31,6 +31,17 @@ test('pinterest requires board id and an approved graphic',()=>{
   assert.ok(result.errors.includes('Pinterest requires an approved graphic'));
 });
 
+test('tiktok fails closed until creator, credential, and approved video exist',()=>{
+  const empty=connectorPreflight({connector_type:'tiktok',config_json:'{}',enabled:1});
+  assert.ok(empty.errors.includes('Connector credential is not stored'));
+  assert.ok(empty.errors.includes('TikTok creator_id is missing'));
+  assert.ok(empty.errors.includes('TikTok requires approved media'));
+  const image=connectorPreflight(connector('tiktok','{"creator_id":"creator-1"}'),{public_token:'asset-token',mime_type:'image/jpeg'});
+  assert.ok(image.errors.includes('TikTok direct publishing requires MP4 or QuickTime video'));
+  const video=connectorPreflight(connector('tiktok','{"creator_id":"creator-1"}'),{public_token:'asset-token',mime_type:'video/mp4'});
+  assert.equal(video.ok,true);
+});
+
 test('mailerlite validates all required campaign settings',()=>{
   const result=connectorPreflight(connector('mailerlite','{"from":"owner@example.com"}'));
   assert.equal(result.ok,false);
