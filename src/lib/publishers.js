@@ -3,6 +3,7 @@ import { setting } from './db.js';
 import { decryptCredential } from './security.js';
 import { connectorPreflight } from './connector-preflight.js';
 import { variantPath } from './media-normalization.js';
+import { tiktokDirectPhoto, tiktokDirectVideo } from './tiktok-direct.js';
 
 async function connectorSecret(env,c){ return c.secret_ciphertext ? decryptCredential(env,c.secret_ciphertext,c.secret_iv) : null; }
 async function bufferPublish(env, connector, post, assetUrl) {
@@ -38,9 +39,16 @@ async function pinterestPublish(env,connector,post,assetUrl,origin){
   const link=post.tracking_code?`${origin}/r/${post.tracking_code}`:undefined; const body={board_id:String(cfg.board_id),title:String(post.product_name||'').slice(0,100)||undefined,description:String(post.caption||'').slice(0,800),link,media_source:{source_type:'image_url',url:assetUrl,is_standard:true}};
   const r=await fetch('https://api.pinterest.com/v5/pins',{method:'POST',headers:{'content-type':'application/json','accept':'application/json','authorization':`Bearer ${token}`},body:JSON.stringify(body)}); const data=await r.json(); if(!r.ok)throw new Error(`Pinterest ${r.status}: ${data.message||JSON.stringify(data)}`); if(!data.id)throw new Error('Pinterest returned no Pin id'); return {externalId:data.id,state:'published'};
 }
+async function tiktokPublish(env,connector,post,assetUrl){
+  const token=await connectorSecret(env,connector); if(!token)throw new Error('TikTok access token not configured');
+  const cfg=JSON.parse(connector.config_json||'{}'); if(!assetUrl)throw new Error('TikTok requires approved media');
+  const common={token,caption:post.caption,privacyLevel:cfg.privacy_level||undefined,brandOrganic:cfg.brand_organic!==false,disableComment:Boolean(cfg.disable_comment)};
+  if(String(post.mime_type||'').startsWith('image/')) return tiktokDirectPhoto({...common,photoUrls:[assetUrl],autoAddMusic:Boolean(cfg.auto_add_music),brandContent:Boolean(cfg.brand_content),title:String(post.product_name||'').slice(0,90)});
+  return tiktokDirectVideo({...common,videoUrl:assetUrl,isAigc:Boolean(cfg.is_aigc),disableDuet:Boolean(cfg.disable_duet),disableStitch:Boolean(cfg.disable_stitch)});
+}
 
 async function sandboxPublish(_env,_connector,post){return {externalId:`sandbox_${post.id}`,state:'simulated'};}
-async function runConnector(env,c,post,assetUrl,origin){if(c.connector_type==='buffer')return bufferPublish(env,c,post,assetUrl);if(c.connector_type==='meta_facebook')return metaFacebookPublish(env,c,post,assetUrl);if(c.connector_type==='meta_instagram')return metaInstagramPublish(env,c,post,assetUrl);if(c.connector_type==='pinterest')return pinterestPublish(env,c,post,assetUrl,origin);if(c.connector_type==='mailerlite')return mailerLitePublish(env,c,post);if(c.connector_type==='sandbox')return sandboxPublish(env,c,post);throw new Error(`Unsupported connector type: ${c.connector_type}`);}
+async function runConnector(env,c,post,assetUrl,origin){if(c.connector_type==='buffer')return bufferPublish(env,c,post,assetUrl);if(c.connector_type==='meta_facebook')return metaFacebookPublish(env,c,post,assetUrl);if(c.connector_type==='meta_instagram')return metaInstagramPublish(env,c,post,assetUrl);if(c.connector_type==='pinterest')return pinterestPublish(env,c,post,assetUrl,origin);if(c.connector_type==='tiktok')return tiktokPublish(env,c,post,assetUrl);if(c.connector_type==='mailerlite')return mailerLitePublish(env,c,post);if(c.connector_type==='sandbox')return sandboxPublish(env,c,post);throw new Error(`Unsupported connector type: ${c.connector_type}`);}
 export async function eligibleConnectors(env,platform){
   const ctl=await setting(env,'cost_control',{approved_monthly_cost_cents:0});const usedRow=await env.DB.prepare(`SELECT COALESCE(SUM(amount_cents),0) used FROM cost_usage WHERE period=strftime('%Y-%m','now')`).first();const remaining=Number(ctl.approved_monthly_cost_cents||0)-Number(usedRow?.used||0);const rows=(await env.DB.prepare(`SELECT * FROM connectors WHERE platform=? AND enabled=1 ORDER BY priority ASC,cost_cents_per_post ASC`).bind(platform).all()).results||[];return rows.filter(c=>Number(c.cost_cents_per_post||0)<=Math.max(0,remaining));
 }
