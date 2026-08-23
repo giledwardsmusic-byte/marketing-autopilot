@@ -16,6 +16,12 @@ migrations_dir = "migrations"
 binding = "MEDIA"
 bucket_name = "marketing-autopilot-media"
 
+[images]
+binding = "IMAGES"
+
+[cache]
+enabled = true
+
 [triggers]
 crons = ["*/5 * * * *", "17 3 * * *"]
 
