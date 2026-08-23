@@ -1,0 +1,27 @@
+{
+  "schema": "marketing-autopilot-drive-source-v1",
+  "canonical_folder_id": "13V50CtAtjWRZ0H_F9kBbjDdWBdsjxxDE",
+  "canonical_folder_url": "https://drive.google.com/drive/folders/13V50CtAtjWRZ0H_F9kBbjDdWBdsjxxDE",
+  "copy_bank_folder_id": "1CkL0vFmPvRQjh6gFkb6TQUD0jprwcPWX",
+  "copy_bank_folder_url": "https://drive.google.com/drive/folders/1CkL0vFmPvRQjh6gFkb6TQUD0jprwcPWX",
+  "sync_policy": {
+    "read": "planned",
+    "write_archive": "planned",
+    "live_publish_before_real_content": false,
+    "require_approved_asset": true
+  },
+  "verified_2026_08_23": {
+    "table_rock_press_logo": "1wHwGftQovieRFdDj6J9S8z6Sp8tE-rBf",
+    "whispering_forest_coloring_book": "1kJd0ssQ821sVx8SkxN0Ijf-KPLaLwdTx",
+    "buddy_copy_doc": "1niwfvlw8bexcjW9CGGMFBFKj0aNb7T9J_5bZj-u6Csw",
+    "sample_real_creatives": [
+      "1PkLr95pGaJE6LHr4N7Zo3J5EB20Vwzjc",
+      "1QV2H1Zdy24vwEEYZbkoI9ynFHskLt9Mj",
+      "1Zjw3I67SzSDEJtRhIrPrJSx5lC_SX5Xm",
+      "1oSE4HsQ8nXSXUl6IDjQyrv_lDXqKCP06",
+      "1ElY-xIR2RlYRx46KHJld0GN4twc9crpO"
+    ],
+    "sample_video": "1H80QUX6Ko2b86a6Ccct2nl5gZMWn2cTI"
+  },
+  "platform_order": ["facebook", "instagram", "pinterest", "tiktok"]
+}
