@@ -31,15 +31,16 @@ test('pinterest requires board id and an approved graphic',()=>{
   assert.ok(result.errors.includes('Pinterest requires an approved graphic'));
 });
 
-test('tiktok fails closed until creator, credential, and approved video exist',()=>{
+test('tiktok requires credential and approved supported media',()=>{
   const empty=connectorPreflight({connector_type:'tiktok',config_json:'{}',enabled:1});
   assert.ok(empty.errors.includes('Connector credential is not stored'));
-  assert.ok(empty.errors.includes('TikTok creator_id is missing'));
   assert.ok(empty.errors.includes('TikTok requires approved media'));
-  const image=connectorPreflight(connector('tiktok','{"creator_id":"creator-1"}'),{public_token:'asset-token',mime_type:'image/jpeg'});
-  assert.ok(image.errors.includes('TikTok direct publishing requires MP4 or QuickTime video'));
-  const video=connectorPreflight(connector('tiktok','{"creator_id":"creator-1"}'),{public_token:'asset-token',mime_type:'video/mp4'});
+  const jpeg=connectorPreflight(connector('tiktok','{}'),{public_token:'asset-token',mime_type:'image/jpeg'});
+  assert.equal(jpeg.ok,true);
+  const video=connectorPreflight(connector('tiktok','{}'),{public_token:'asset-token',mime_type:'video/mp4'});
   assert.equal(video.ok,true);
+  const png=connectorPreflight(connector('tiktok','{}'),{public_token:'asset-token',mime_type:'image/png'});
+  assert.ok(png.errors.includes('TikTok direct publishing requires MP4/QuickTime video or normalized JPEG photo media'));
 });
 
 test('mailerlite validates all required campaign settings',()=>{
