@@ -2,6 +2,7 @@ import { nowIso } from './utils.js';
 import { setting } from './db.js';
 import { decryptCredential } from './security.js';
 import { connectorPreflight } from './connector-preflight.js';
+import { variantPath } from './media-normalization.js';
 
 async function connectorSecret(env,c){ return c.secret_ciphertext ? decryptCredential(env,c.secret_ciphertext,c.secret_iv) : null; }
 async function bufferPublish(env, connector, post, assetUrl) {
@@ -48,9 +49,18 @@ function connectorForPreflight(env,c){
   const hasEnvCredential=(c.connector_type==='buffer'&&env.BUFFER_API_KEY)||(c.connector_type==='mailerlite'&&env.MAILERLITE_API_KEY);
   return hasEnvCredential?{...c,secret_ciphertext:'environment-secret'}:c;
 }
+function publishingMedia(origin,post){
+  if(!post.public_token)return {assetUrl:null,postForPublish:post};
+  const isImage=String(post.mime_type||'').startsWith('image/');
+  if(!isImage)return {assetUrl:`${origin}/public-media/${post.public_token}`,postForPublish:post};
+  const supported=['facebook','instagram','pinterest','tiktok'].includes(String(post.platform||'').toLowerCase());
+  if(!supported)return {assetUrl:`${origin}/public-media/${post.public_token}`,postForPublish:post};
+  const assetUrl=`${origin}${variantPath(post.platform,post.public_token)}`;
+  return {assetUrl,postForPublish:{...post,mime_type:'image/jpeg'}};
+}
 export async function publishOne(env,post){
-  const connectors=await eligibleConnectors(env,post.platform);if(!connectors.length)throw new Error(`No enabled connector within approved cost ceiling for ${post.platform}`);const runtime=await setting(env,'runtime_origin',{origin:env.APP_ORIGIN}); const origin=runtime.origin||env.APP_ORIGIN; const assetUrl=post.public_token?`${origin}/public-media/${post.public_token}`:null;const attempts=[];
-  for(const c of connectors){try{const preflight=connectorPreflight(connectorForPreflight(env,c),post);if(!preflight.ok)throw new Error(`Preflight: ${preflight.errors.join('; ')}`);const result=await runConnector(env,c,post,assetUrl,origin);await env.DB.prepare(`UPDATE connectors SET last_success_at=?,last_error=NULL,updated_at=? WHERE id=?`).bind(nowIso(),nowIso(),c.id).run();if(Number(c.cost_cents_per_post||0)>0)await env.DB.prepare(`INSERT INTO cost_usage(id,category,provider,amount_cents,units,period,recorded_at) VALUES(?,?,?,?,1,strftime('%Y-%m','now'),?)`).bind(`cost_${crypto.randomUUID()}`,'publishing',c.connector_type,c.cost_cents_per_post,nowIso()).run();return {...result,connector:c,attempts};}catch(e){attempts.push({connector:c.name,error:String(e.message||e)});await env.DB.prepare(`UPDATE connectors SET last_error_at=?,last_error=?,updated_at=? WHERE id=?`).bind(nowIso(),String(e.message||e).slice(0,1000),nowIso(),c.id).run();}}
+  const connectors=await eligibleConnectors(env,post.platform);if(!connectors.length)throw new Error(`No enabled connector within approved cost ceiling for ${post.platform}`);const runtime=await setting(env,'runtime_origin',{origin:env.APP_ORIGIN}); const origin=runtime.origin||env.APP_ORIGIN; const {assetUrl,postForPublish}=publishingMedia(origin,post);const attempts=[];
+  for(const c of connectors){try{const preflight=connectorPreflight(connectorForPreflight(env,c),postForPublish);if(!preflight.ok)throw new Error(`Preflight: ${preflight.errors.join('; ')}`);const result=await runConnector(env,c,postForPublish,assetUrl,origin);await env.DB.prepare(`UPDATE connectors SET last_success_at=?,last_error=NULL,updated_at=? WHERE id=?`).bind(nowIso(),nowIso(),c.id).run();if(Number(c.cost_cents_per_post||0)>0)await env.DB.prepare(`INSERT INTO cost_usage(id,category,provider,amount_cents,units,period,recorded_at) VALUES(?,?,?,?,1,strftime('%Y-%m','now'),?)`).bind(`cost_${crypto.randomUUID()}`,'publishing',c.connector_type,c.cost_cents_per_post,nowIso()).run();return {...result,connector:c,attempts,media_url:assetUrl};}catch(e){attempts.push({connector:c.name,error:String(e.message||e)});await env.DB.prepare(`UPDATE connectors SET last_error_at=?,last_error=?,updated_at=? WHERE id=?`).bind(nowIso(),String(e.message||e).slice(0,1000),nowIso(),c.id).run();}}
   throw new Error(`All ${post.platform} routes failed: ${attempts.map(a=>`${a.connector}: ${a.error}`).join(' | ')}`);
 }
 
