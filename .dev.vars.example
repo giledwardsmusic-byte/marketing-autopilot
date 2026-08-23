@@ -24,3 +24,10 @@ PAYHIP_API_KEY=
 RESEND_API_KEY=
 ALERT_EMAIL_TO=
 ALERT_EMAIL_FROM=
+
+# Google Drive source/archive sync. Uses the designated folder by default.
+# Requires one-time Google OAuth authorization with Drive read/write scope.
+GOOGLE_DRIVE_FOLDER_ID=13V50CtAtjWRZ0H_F9kBbjDdWBdsjxxDE
+GOOGLE_DRIVE_CLIENT_ID=
+GOOGLE_DRIVE_CLIENT_SECRET=
+GOOGLE_DRIVE_REFRESH_TOKEN=
