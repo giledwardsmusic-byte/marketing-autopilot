@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { queryTikTokCreator, tiktokDirectVideo, fetchTikTokPostStatus } from '../src/lib/tiktok-direct.js';
+import { queryTikTokCreator, tiktokDirectVideo, tiktokDirectPhoto, fetchTikTokPostStatus } from '../src/lib/tiktok-direct.js';
 
 function fakeFetch(queue,calls){return async (url,opts)=>{calls.push({url,opts,body:opts?.body?JSON.parse(opts.body):null});const next=queue.shift();return {ok:next.ok??true,status:next.status??200,json:async()=>next.body};};}
 
@@ -9,6 +9,8 @@ const creator={data:{creator_username:'tablerockpress',privacy_level_options:['S
 test('queries creator info before any direct post',async()=>{const calls=[];const f=fakeFetch([{body:creator}],calls);const c=await queryTikTokCreator('tok',f);assert.equal(c.creator_username,'tablerockpress');assert.match(calls[0].url,/creator_info\/query/);});
 
 test('direct video defaults to SELF_ONLY and uses PULL_FROM_URL',async()=>{const calls=[];const f=fakeFetch([{body:creator},{body:{data:{publish_id:'v_pub_url~123'},error:{code:'ok',message:''}}}],calls);const out=await tiktokDirectVideo({token:'tok',caption:'Buddy in the Whispering Forest',videoUrl:'https://example.com/buddy.mp4'},f);assert.equal(out.externalId,'v_pub_url~123');assert.equal(out.state,'submitted');assert.equal(calls[1].body.post_info.privacy_level,'SELF_ONLY');assert.equal(calls[1].body.post_info.brand_organic_toggle,true);assert.equal(calls[1].body.source_info.source,'PULL_FROM_URL');});
+
+test('direct photo queries creator then posts normalized image URL',async()=>{const calls=[];const f=fakeFetch([{body:creator},{body:{data:{publish_id:'p_pub_url~123'},error:{code:'ok',message:''}}}],calls);const out=await tiktokDirectPhoto({token:'tok',caption:'Meet Buddy',title:'Buddy',photoUrls:['https://example.com/media-variant/tiktok/buddy']},f);assert.equal(out.externalId,'p_pub_url~123');assert.equal(out.mediaType,'photo');assert.match(calls[1].url,/content\/init/);assert.equal(calls[1].body.media_type,'PHOTO');assert.equal(calls[1].body.post_mode,'DIRECT_POST');assert.equal(calls[1].body.post_info.privacy_level,'SELF_ONLY');assert.deepEqual(calls[1].body.source_info.photo_images,['https://example.com/media-variant/tiktok/buddy']);});
 
 test('rejects a privacy level not offered by creator',async()=>{const calls=[];const f=fakeFetch([{body:creator}],calls);await assert.rejects(()=>tiktokDirectVideo({token:'tok',videoUrl:'https://example.com/buddy.mp4',privacyLevel:'MUTUAL_FOLLOW_FRIENDS'},f),/not allowed/);assert.equal(calls.length,1);});
 
