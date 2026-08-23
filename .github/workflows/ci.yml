@@ -25,10 +25,14 @@ jobs:
           node --check src/lib/campaign-engine.js
           node --check src/lib/connector-preflight.js
           node --check src/lib/db.js
+          node --check src/lib/media-normalization.js
+          node --check src/lib/notifications.js
           node --check src/lib/publishers.js
           node --check src/lib/sandbox.js
           node --check src/lib/schema-bootstrap.js
           node --check src/lib/security.js
+          node --check src/lib/table-rock-seed.js
+          node --check src/lib/tiktok-direct.js
           node --check src/lib/utils.js
           node --check public/autopilot.js
           node --check public/app.js
