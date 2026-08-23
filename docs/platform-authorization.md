@@ -1,0 +1,90 @@
+# Platform authorization completion runbook
+
+This is the final external-account checklist for Marketing Autopilot. Do not publish live content until the Table Rock Press seed/copy bank and approved creative are present.
+
+## Status meanings
+
+- **Prepared**: publisher code and fail-closed preflight exist.
+- **Authorized**: required platform token/IDs have been stored in the connector.
+- **Verified**: connector preflight passes against approved Table Rock Press content.
+- **Live**: a real post has successfully published and its external post ID was recorded.
+
+Never call a platform connected merely because its code exists.
+
+## 1. Instagram via Meta
+
+Preferred next platform because it can reuse the existing Meta app/account path.
+
+Connector type: `meta_instagram`
+
+Required connector data:
+- encrypted Meta/Instagram access token
+- `config_json.ig_user_id`
+- enabled connector
+- approved JPEG creative with a public media token
+
+Verification before first post:
+1. Token is stored encrypted, never committed to GitHub.
+2. `ig_user_id` is present.
+3. Preflight passes with a real Table Rock Press JPEG.
+4. First live test uses approved Marketing Copy Bank text and approved Table Rock Press art.
+5. Record returned Instagram media ID and connector success timestamp.
+
+## 2. Pinterest
+
+Connector type: `pinterest`
+
+Required connector data:
+- encrypted Pinterest access token
+- `config_json.board_id`
+- enabled connector
+- approved graphic with public media token
+
+Verification before first Pin:
+1. Token is stored encrypted.
+2. Board ID is present.
+3. Preflight passes using real Table Rock Press creative.
+4. Tracking link is generated when a campaign tracking code exists.
+5. Record returned Pin ID and connector success timestamp.
+
+## 3. TikTok
+
+Connector type: `tiktok`
+
+Required connector data:
+- encrypted TikTok access token with Content Posting authorization
+- `config_json.creator_id`
+- approved MP4 or QuickTime video with a public HTTPS media URL
+
+The direct-post core already queries creator information, validates an allowed privacy level, initializes a PULL_FROM_URL video post, and can fetch post status. The generic publisher dispatcher must be wired to this direct-post core before TikTok is considered publish-ready.
+
+Verification before first TikTok test:
+1. Store token encrypted.
+2. Confirm creator ID/config.
+3. Confirm MP4/QuickTime approved media.
+4. Run preflight.
+5. Query creator info before posting.
+6. Use an allowed privacy setting; testing should remain private when platform/app status requires it.
+7. Record publish ID and poll status.
+
+## Google Drive source/archive
+
+Canonical source/archive folder ID: `13V50CtAtjWRZ0H_F9kBbjDdWBdsjxxDE`
+
+Marketing Copy Bank folder ID: `1CkL0vFmPvRQjh6gFkb6TQUD0jprwcPWX`
+
+Marketing Copy Bank document ID: `173q8LAdNffIprY8DwULTryvy2bRj3IyZ5Mo4VhMwJxA`
+
+Drive read and write access have been verified. The copy bank contains real Table Rock Press / Whispering Forest copy. The application seed must remain source-backed and idempotent.
+
+## Live-test gate
+
+A live publishing test is allowed only when all of these are true:
+- real Table Rock Press copy is loaded and approved;
+- real Table Rock Press creative is approved;
+- target connector is authorized;
+- connector preflight passes;
+- monthly approved publishing cost remains within the configured ceiling;
+- no placeholder content is used.
+
+Platform order: Instagram, Pinterest, TikTok.
