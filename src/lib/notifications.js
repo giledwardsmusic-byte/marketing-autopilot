@@ -39,11 +39,11 @@ export async function notifyPaidSale(env,payload){
 }
 
 export async function notifyUnresolvedHealth(env){
-  const rows=(await env.DB.prepare(`SELECT id,key,severity,message,created_at FROM health_events WHERE resolved=0 ORDER BY CASE severity WHEN 'red' THEN 0 WHEN 'yellow' THEN 1 ELSE 2 END,created_at ASC LIMIT 50`).all()).results||[];
+  const rows=(await env.DB.prepare(`SELECT id,component,severity,message,created_at FROM health_events WHERE resolved=0 ORDER BY CASE severity WHEN 'red' THEN 0 WHEN 'yellow' THEN 1 ELSE 2 END,created_at ASC LIMIT 50`).all()).results||[];
   const out=[];
   for(const row of rows){
-    const text=`Marketing Autopilot needs attention.\n\nSeverity: ${row.severity}\nIssue: ${row.key}\n${row.message||''}\nDetected: ${row.created_at||''}`;
-    try{out.push(await sendAlertOnce(env,{key:`health:${row.id}`,subject:`Marketing Autopilot ${String(row.severity||'alert').toUpperCase()}: ${row.key}`,text}));}
+    const text=`Marketing Autopilot needs attention.\n\nSeverity: ${row.severity}\nIssue: ${row.component}\n${row.message||''}\nDetected: ${row.created_at||''}`;
+    try{out.push(await sendAlertOnce(env,{key:`health:${row.id}`,subject:`Marketing Autopilot ${String(row.severity||'alert').toUpperCase()}: ${row.component}`,text}));}
     catch(e){out.push({state:'failed',error:String(e.message||e)});}
   }
   return out;
