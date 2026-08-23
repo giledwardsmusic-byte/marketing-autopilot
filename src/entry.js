@@ -7,6 +7,8 @@ import { ensureTableRockPressSeed } from './lib/table-rock-seed.js';
 import { currentUser } from './lib/auth.js';
 import { assertSameOrigin } from './lib/security.js';
 import { nowIso } from './lib/utils.js';
+import { notifyPaidSale, notifyUnresolvedHealth } from './lib/notifications.js';
+import { serveImageVariant } from './lib/media-normalization.js';
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8'}});
 const SCHEDULER_LEASE_KEY='scheduler:lease';
@@ -52,12 +54,32 @@ async function prepareRuntime(env){
   await ensureTableRockPressSeed(env);
 }
 
+async function baseFetchWithSaleAlert(request,env,ctx){
+  const isPayhip=request.method==='POST'&&new URL(request.url).pathname==='/webhooks/payhip';
+  const copy=isPayhip?request.clone():null;
+  const response=await base.fetch(request,env,ctx);
+  if(isPayhip&&response.ok&&copy){
+    try{
+      const payload=await copy.json();
+      if(payload?.type==='paid')await notifyPaidSale(env,payload);
+    }catch(e){
+      await health(env,'notifications:sale','yellow',`Sale alert failed: ${String(e.message||e).slice(0,220)}`);
+    }
+  }
+  return response;
+}
+
 export default {
   async fetch(request,env,ctx){
     await prepareRuntime(env);
     const url=new URL(request.url);
     if(url.pathname==='/api/week/approve'&&request.method==='POST')return approveWholeWeek(request,env);
-    return base.fetch(request,env,ctx);
+    if(url.pathname.startsWith('/media-variant/')&&request.method==='GET'){
+      const parts=url.pathname.split('/').filter(Boolean);
+      if(parts.length!==3)return new Response('Not found',{status:404});
+      return serveImageVariant(env,decodeURIComponent(parts[1]),decodeURIComponent(parts[2]));
+    }
+    return baseFetchWithSaleAlert(request,env,ctx);
   },
   async scheduled(controller,env,ctx){
     await prepareRuntime(env);
@@ -65,6 +87,12 @@ export default {
     if(!leaseToken)return;
     try{
       await base.scheduled(controller,env,ctx);
+      try{
+        await notifyUnresolvedHealth(env);
+        await resolveHealth(env,'notifications:health');
+      }catch(e){
+        await health(env,'notifications:health','yellow',`Health alert sweep failed: ${String(e.message||e).slice(0,220)}`);
+      }
       if(controller.cron==='17 3 * * *'){
         try{
           await ensureAutopilotCampaigns(env);
