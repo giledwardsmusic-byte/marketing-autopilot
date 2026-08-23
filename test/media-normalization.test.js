@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PLATFORM_IMAGE_PROFILES, profileForPlatform, variantPath, validateOriginalForPlatform } from '../src/lib/media-normalization.js';
+import { PLATFORM_IMAGE_PROFILES, profileForPlatform, variantPath, validateOriginalForPlatform, serveImageVariant } from '../src/lib/media-normalization.js';
 
 test('platform profiles use intended aspect ratios and dimensions',()=>{
   assert.deepEqual([PLATFORM_IMAGE_PROFILES.pinterest.width,PLATFORM_IMAGE_PROFILES.pinterest.height],[1000,1500]);
@@ -45,4 +45,59 @@ test('TikTok photo fallback accepts JPEG/WebP at 1080p and rejects PNG/oversize'
 test('fallback fails closed for unknown dimensions and oversized files',()=>{
   assert.equal(validateOriginalForPlatform('facebook',{mime_type:'image/jpeg',size_bytes:1000,width:null,height:null}).ok,false);
   assert.equal(validateOriginalForPlatform('pinterest',{mime_type:'image/jpeg',size_bytes:21*1024*1024,width:1000,height:1500}).ok,false);
+});
+
+function quotaEnv(asset){
+  const healthEvents=[];
+  return {
+    healthEvents,
+    DB:{
+      prepare(sql){
+        return {
+          args:[],
+          bind(...args){this.args=args;return this;},
+          async first(){
+            if(sql.includes('FROM assets WHERE public_token=')) return asset;
+            if(sql.includes('FROM health_events')) return null;
+            if(sql.includes('SELECT value_json FROM settings')) return null;
+            throw new Error(`Unexpected first SQL: ${sql}`);
+          },
+          async run(){
+            if(sql.includes('INSERT INTO health_events')){healthEvents.push({component:this.args[1],severity:this.args[2],message:this.args[3]});return {meta:{changes:1}};}
+            if(sql.includes('INSERT INTO settings')) return {meta:{changes:1}};
+            throw new Error(`Unexpected run SQL: ${sql}`);
+          }
+        };
+      }
+    },
+    MEDIA:{async get(){return {body:new Uint8Array([1,2,3])};}},
+    IMAGES:{
+      input(){return {
+        transform(){return this;},
+        output(){return {async response(){return new Response('Cloudflare Images error 9422',{status:429});}};}
+      };}
+    }
+  };
+}
+
+test('Cloudflare quota error 9422 serves the valid original and logs a warning',async()=>{
+  const env=quotaEnv({r2_key:'assets/a.jpg',mime_type:'image/jpeg',size_bytes:500000,width:1080,height:1350,status:'approved'});
+  const response=await serveImageVariant(env,'instagram','tok');
+  assert.equal(response.status,200);
+  assert.equal(response.headers.get('x-ma-media-state'),'original-fallback');
+  assert.equal(response.headers.get('content-type'),'image/jpeg');
+  assert.equal(env.healthEvents.length,1);
+  assert.equal(env.healthEvents[0].severity,'yellow');
+  assert.match(env.healthEvents[0].message,/quota exhausted/i);
+  assert.match(env.healthEvents[0].message,/original asset passed/i);
+});
+
+test('Cloudflare quota error fails closed when original is invalid for destination',async()=>{
+  const env=quotaEnv({r2_key:'assets/a.png',mime_type:'image/png',size_bytes:500000,width:1080,height:1350,status:'approved'});
+  const response=await serveImageVariant(env,'instagram','tok');
+  assert.equal(response.status,415);
+  assert.equal(response.headers.get('x-ma-media-state'),'blocked');
+  assert.equal(env.healthEvents.length,1);
+  assert.equal(env.healthEvents[0].severity,'red');
+  assert.match(env.healthEvents[0].message,/paused instead of sending broken media/i);
 });
