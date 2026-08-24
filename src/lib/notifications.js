@@ -56,6 +56,31 @@ export async function notifyPaidSale(env,payload){
   return sendAlertOnce(env,{key:`sale:payhip:${payload.id}`,subject:`Sale: ${itemNames||'Payhip order'}`,text});
 }
 
+export async function notifyRecordedPaidSales(env){
+  const rows=(await env.DB.prepare(`SELECT se.transaction_id,
+      SUM(se.amount_cents) amount_cents,
+      MAX(se.currency) currency,
+      MIN(se.occurred_at) occurred_at,
+      GROUP_CONCAT(DISTINCT COALESCE(p.name,json_extract(se.raw_summary_json,'$.product_name'))) product_names
+    FROM sales_events se
+    LEFT JOIN products p ON p.id=se.product_id
+    WHERE se.provider='payhip' AND se.event_type='paid'
+    GROUP BY se.transaction_id
+    ORDER BY MIN(se.occurred_at) ASC`).all()).results||[];
+  const out=[];
+  for(const row of rows){
+    const tx=String(row.transaction_id||'');
+    if(!tx)continue;
+    const amount=Number(row.amount_cents||0);
+    const currency=String(row.currency||'').toUpperCase();
+    const productNames=String(row.product_names||'').trim()||'Table Rock Press product';
+    const text=`A Payhip sale was recorded.\n\nProduct: ${productNames}\nAmount: ${currency?currency+' ':''}${(amount/100).toFixed(2)}\nTransaction: ${tx}${row.occurred_at?`\nRecorded: ${row.occurred_at}`:''}`;
+    try{out.push(await sendAlertOnce(env,{key:`sale:payhip:${tx}`,subject:`Sale: ${productNames}`,text}));}
+    catch(e){out.push({state:'failed',transaction_id:tx,error:String(e.message||e)});}
+  }
+  return out;
+}
+
 export async function notifyUnresolvedHealth(env){
   const rows=(await env.DB.prepare(`SELECT id,component,severity,message,created_at FROM health_events WHERE resolved=0 ORDER BY CASE severity WHEN 'red' THEN 0 WHEN 'yellow' THEN 1 ELSE 2 END,created_at ASC`).all()).results||[];
   const out=[];
