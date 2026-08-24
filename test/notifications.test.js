@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { alertEmailConfigured, sendAlertOnce } from '../src/lib/notifications.js';
+import { alertEmailConfigured, sendAlertOnce, notifyUnresolvedHealth } from '../src/lib/notifications.js';
 
 function dbMock(){
   const store=new Map();
@@ -82,5 +82,24 @@ test('failed delivery releases claim so it can retry',async()=>{
     assert.equal(DB.store.has('notification:retry'),false);
     assert.equal((await sendAlertOnce(env,{key:'retry',subject:'s',text:'t'})).state,'sent');
     assert.equal(calls,2);
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test('health sweep covers every unresolved event, including more than 50',async()=>{
+  const rows=Array.from({length:75},(_,i)=>({id:`h${i+1}`,component:`component:${i+1}`,severity:i%3===0?'red':'yellow',message:`issue ${i+1}`,created_at:`2026-08-23T00:${String(i%60).padStart(2,'0')}:00.000Z`}));
+  const DB=dbMock();
+  const originalPrepare=DB.prepare.bind(DB);
+  DB.prepare=(sql)=>{
+    if(sql.includes('FROM health_events WHERE resolved=0'))return {async all(){return {results:rows};}};
+    return originalPrepare(sql);
+  };
+  const oldFetch=globalThis.fetch; let calls=0;
+  globalThis.fetch=async()=>{calls++;return new Response(JSON.stringify({id:`em_${calls}`}),{status:200,headers:{'content-type':'application/json'}});};
+  try{
+    const env={DB,RESEND_API_KEY:'x',ALERT_EMAIL_TO:'a@example.com',ALERT_EMAIL_FROM:'b@example.com'};
+    const out=await notifyUnresolvedHealth(env);
+    assert.equal(out.length,75);
+    assert.equal(calls,75);
+    assert.ok(out.every(x=>x.state==='sent'));
   }finally{globalThis.fetch=oldFetch;}
 });
