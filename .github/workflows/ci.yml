@@ -30,6 +30,7 @@ jobs:
           node --check src/lib/media-normalization.js
           node --check src/lib/notifications.js
           node --check src/lib/pinterest-direct.js
+          node --check src/lib/pinterest-oauth.js
           node --check src/lib/publishers.js
           node --check src/lib/sandbox.js
           node --check src/lib/schema-bootstrap.js
