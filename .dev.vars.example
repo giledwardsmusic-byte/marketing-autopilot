@@ -12,6 +12,12 @@ AI_MODEL=
 BUFFER_API_KEY=
 MAILERLITE_API_KEY=
 
+# Pinterest OAuth. Create the app in Pinterest Developers, then keep the real
+# client secret in Cloudflare Worker secrets rather than source control.
+PINTEREST_CLIENT_ID=
+PINTEREST_CLIENT_SECRET=
+PINTEREST_REDIRECT_URI=
+
 # Public origin used to serve R2 media to publishing services.
 APP_ORIGIN=http://localhost:8787
 # Generate with: openssl rand -base64 32
