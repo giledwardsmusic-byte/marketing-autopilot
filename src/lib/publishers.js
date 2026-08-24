@@ -3,6 +3,7 @@ import { setting } from './db.js';
 import { decryptCredential } from './security.js';
 import { connectorPreflight } from './connector-preflight.js';
 import { variantPath } from './media-normalization.js';
+import { publishInstagramImage } from './instagram-direct.js';
 import { tiktokDirectPhoto, tiktokDirectVideo } from './tiktok-direct.js';
 
 async function connectorSecret(env,c){ return c.secret_ciphertext ? decryptCredential(env,c.secret_ciphertext,c.secret_iv) : null; }
@@ -31,8 +32,9 @@ async function metaFacebookPublish(env,connector,post,assetUrl){
   const r=await fetch(endpoint,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form}); const data=await r.json(); if(!r.ok||data.error) throw new Error(`Meta Facebook ${r.status}: ${data.error?.message||JSON.stringify(data)}`); const externalId=data.post_id||data.id; if(!externalId)throw new Error('Meta Facebook returned no post id'); return {externalId,state:'published'};
 }
 async function metaInstagramPublish(env,connector,post,assetUrl){
-  const token=(await connectorSecret(env,connector)); if(!token) throw new Error('Instagram access token not configured'); const cfg=JSON.parse(connector.config_json||'{}'); if(!cfg.ig_user_id)throw new Error('Meta Instagram connector requires ig_user_id'); if(!assetUrl)throw new Error('Instagram image post requires an approved graphic'); if(post.mime_type && post.mime_type!=='image/jpeg')throw new Error(`Direct Instagram publishing requires JPEG; asset is ${post.mime_type}. Trying another route.`);
-  const version=cfg.api_version||'v25.0'; const host=cfg.host||'https://graph.facebook.com'; const form=new URLSearchParams({image_url:assetUrl,caption:post.caption,access_token:token}); const create=await fetch(`${host}/${version}/${cfg.ig_user_id}/media`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:form}); const c=await create.json(); if(!create.ok||c.error)throw new Error(`Instagram create ${create.status}: ${c.error?.message||JSON.stringify(c)}`); if(!c.id)throw new Error('Instagram returned no media container id'); const pubForm=new URLSearchParams({creation_id:c.id,access_token:token}); const pub=await fetch(`${host}/${version}/${cfg.ig_user_id}/media_publish`,{method:'POST',headers:{'content-type':'application/x-www-form-urlencoded'},body:pubForm}); const data=await pub.json(); if(!pub.ok||data.error)throw new Error(`Instagram publish ${pub.status}: ${data.error?.message||JSON.stringify(data)}`); if(!data.id)throw new Error('Instagram returned no published media id'); return {externalId:data.id,state:'published'};
+  const token=(await connectorSecret(env,connector)); if(!token) throw new Error('Instagram access token not configured');
+  const cfg=JSON.parse(connector.config_json||'{}'); if(!cfg.ig_user_id)throw new Error('Meta Instagram connector requires ig_user_id'); if(!assetUrl)throw new Error('Instagram image post requires an approved graphic'); if(post.mime_type && post.mime_type!=='image/jpeg')throw new Error(`Direct Instagram publishing requires JPEG; asset is ${post.mime_type}. Trying another route.`);
+  return publishInstagramImage({igUserId:cfg.ig_user_id,token,imageUrl:assetUrl,caption:post.caption,apiVersion:cfg.api_version||'v25.0',host:cfg.host||'https://graph.facebook.com'});
 }
 async function pinterestPublish(env,connector,post,assetUrl,origin){
   const token=(await connectorSecret(env,connector)); if(!token)throw new Error('Pinterest access token not configured'); const cfg=JSON.parse(connector.config_json||'{}'); if(!cfg.board_id)throw new Error('Pinterest connector requires board_id'); if(!assetUrl)throw new Error('Pinterest image Pin requires an approved graphic');
