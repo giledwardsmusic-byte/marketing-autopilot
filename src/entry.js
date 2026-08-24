@@ -7,7 +7,7 @@ import { ensureTableRockPressSeed } from './lib/table-rock-seed.js';
 import { currentUser } from './lib/auth.js';
 import { assertSameOrigin } from './lib/security.js';
 import { nowIso } from './lib/utils.js';
-import { notifyPaidSale, notifyUnresolvedHealth } from './lib/notifications.js';
+import { notifyPaidSale, notifyRecordedPaidSales, notifyUnresolvedHealth } from './lib/notifications.js';
 import { serveImageVariant } from './lib/media-normalization.js';
 import { syncGoogleDrive } from './lib/google-drive-sync.js';
 import { reconcileTikTokSubmissions } from './lib/tiktok-reconcile.js';
@@ -131,6 +131,13 @@ export default {
         await resolveHealth(env,'tiktok:reconcile');
       }catch(e){
         await health(env,'tiktok:reconcile','yellow',`TikTok submission reconciliation failed: ${String(e.message||e).slice(0,220)}`);
+      }
+      try{
+        const sales=await notifyRecordedPaidSales(env);
+        if(sales.some(x=>x.state==='failed'))throw new Error(`${sales.filter(x=>x.state==='failed').length} recorded sale alert(s) failed and will retry`);
+        await resolveHealth(env,'notifications:sale');
+      }catch(e){
+        await health(env,'notifications:sale','yellow',`Recorded sale alert sweep failed: ${String(e.message||e).slice(0,220)}`);
       }
       try{
         await notifyUnresolvedHealth(env);
