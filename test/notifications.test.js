@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { alertEmailConfigured, sendAlertOnce, notifyUnresolvedHealth } from '../src/lib/notifications.js';
+import { alertEmailConfigured, sendAlertOnce, notifyRecordedPaidSales, notifyUnresolvedHealth } from '../src/lib/notifications.js';
 
 function dbMock(){
   const store=new Map();
@@ -81,6 +81,33 @@ test('failed delivery releases claim so it can retry',async()=>{
     await assert.rejects(()=>sendAlertOnce(env,{key:'retry',subject:'s',text:'t'}),/Resend 503/);
     assert.equal(DB.store.has('notification:retry'),false);
     assert.equal((await sendAlertOnce(env,{key:'retry',subject:'s',text:'t'})).state,'sent');
+    assert.equal(calls,2);
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test('recorded Payhip sale alert retries after provider failure and then deduplicates',async()=>{
+  const DB=dbMock();
+  const originalPrepare=DB.prepare.bind(DB);
+  const saleRows=[{transaction_id:'TX123',amount_cents:499,currency:'USD',occurred_at:'2026-08-24T09:00:00.000Z',product_names:'Sage Nut'}];
+  DB.prepare=(sql)=>{
+    if(sql.includes("FROM sales_events se"))return {async all(){return {results:saleRows};}};
+    return originalPrepare(sql);
+  };
+  const oldFetch=globalThis.fetch; let calls=0;
+  globalThis.fetch=async()=>{
+    calls++;
+    if(calls===1)return new Response(JSON.stringify({message:'temporary'}),{status:503,headers:{'content-type':'application/json'}});
+    return new Response(JSON.stringify({id:'em_sale'}),{status:200,headers:{'content-type':'application/json'}});
+  };
+  try{
+    const env={DB,RESEND_API_KEY:'x',ALERT_EMAIL_TO:'a@example.com',ALERT_EMAIL_FROM:'b@example.com'};
+    const first=await notifyRecordedPaidSales(env);
+    assert.equal(first[0].state,'failed');
+    assert.equal(DB.store.has('notification:sale:payhip:TX123'),false);
+    const second=await notifyRecordedPaidSales(env);
+    assert.equal(second[0].state,'sent');
+    const third=await notifyRecordedPaidSales(env);
+    assert.equal(third[0].state,'duplicate');
     assert.equal(calls,2);
   }finally{globalThis.fetch=oldFetch;}
 });
