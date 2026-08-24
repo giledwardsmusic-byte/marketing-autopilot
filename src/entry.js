@@ -14,6 +14,7 @@ import { syncGoogleDrive } from './lib/google-drive-sync.js';
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8'}});
 const SCHEDULER_LEASE_KEY='scheduler:lease';
 const SCHEDULER_LEASE_MS=10*60*1000;
+const MEDIA_RETRY_PREFIX='MEDIA_BLOCKED_RETRY:';
 
 export async function acquireSchedulerLease(env, now=new Date()){
   const token=crypto.randomUUID();
@@ -31,6 +32,41 @@ export async function releaseSchedulerLease(env, token){
   if(!token)return;
   await env.DB.prepare(`DELETE FROM settings WHERE key=? AND json_extract(value_json,'$.token')=?`)
     .bind(SCHEDULER_LEASE_KEY,token).run();
+}
+
+export async function preflightDueMedia(env){
+  const rows=(await env.DB.prepare(`SELECT sp.id,sp.platform,sp.status,sp.error_message,a.public_token
+    FROM scheduled_posts sp JOIN assets a ON a.id=sp.asset_id
+    WHERE sp.scheduled_for<=?
+      AND a.public_token IS NOT NULL
+      AND a.mime_type LIKE 'image/%'
+      AND lower(sp.platform) IN ('facebook','instagram','pinterest','tiktok')
+      AND (sp.status IN ('scheduled','approved') OR (sp.status='paused' AND sp.error_message LIKE ?))
+    ORDER BY sp.scheduled_for ASC LIMIT 25`)
+    .bind(nowIso(),`${MEDIA_RETRY_PREFIX}%`).all()).results||[];
+  let paused=0,requeued=0;
+  for(const row of rows){
+    try{
+      const response=await serveImageVariant(env,row.platform,row.public_token);
+      if(response.ok){
+        if(row.status==='paused'){
+          await env.DB.prepare(`UPDATE scheduled_posts SET status='scheduled',error_message=NULL,updated_at=? WHERE id=? AND status='paused'`).bind(nowIso(),row.id).run();
+          await resolveHealth(env,`media:post:${row.id}`);
+          requeued++;
+        }
+        continue;
+      }
+      if(response.status===415&&response.headers.get('x-ma-media-state')==='blocked'){
+        const detail=(await response.text()).slice(0,700);
+        await env.DB.prepare(`UPDATE scheduled_posts SET status='paused',error_message=?,updated_at=? WHERE id=?`).bind(`${MEDIA_RETRY_PREFIX} ${detail}`,nowIso(),row.id).run();
+        await health(env,`media:post:${row.id}`,'red',`Post paused before publishing because safe media could not be produced. ${detail}`.slice(0,900));
+        paused++;
+      }
+    }catch(e){
+      await health(env,`media:preflight:${row.id}`,'yellow',`Media preflight could not complete; publishing was left unchanged for normal retry/error handling: ${String(e.message||e).slice(0,500)}`);
+    }
+  }
+  return {checked:rows.length,paused,requeued};
 }
 
 async function approveWholeWeek(request,env){
@@ -87,6 +123,7 @@ export default {
     const leaseToken=await acquireSchedulerLease(env);
     if(!leaseToken)return;
     try{
+      await preflightDueMedia(env);
       await base.scheduled(controller,env,ctx);
       try{
         await notifyUnresolvedHealth(env);
