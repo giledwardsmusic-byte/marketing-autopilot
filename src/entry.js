@@ -10,6 +10,7 @@ import { nowIso } from './lib/utils.js';
 import { notifyPaidSale, notifyUnresolvedHealth } from './lib/notifications.js';
 import { serveImageVariant } from './lib/media-normalization.js';
 import { syncGoogleDrive } from './lib/google-drive-sync.js';
+import { reconcileTikTokSubmissions } from './lib/tiktok-reconcile.js';
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8'}});
 const SCHEDULER_LEASE_KEY='scheduler:lease';
@@ -125,6 +126,12 @@ export default {
     try{
       await preflightDueMedia(env);
       await base.scheduled(controller,env,ctx);
+      try{
+        await reconcileTikTokSubmissions(env);
+        await resolveHealth(env,'tiktok:reconcile');
+      }catch(e){
+        await health(env,'tiktok:reconcile','yellow',`TikTok submission reconciliation failed: ${String(e.message||e).slice(0,220)}`);
+      }
       try{
         await notifyUnresolvedHealth(env);
         await resolveHealth(env,'notifications:health');
