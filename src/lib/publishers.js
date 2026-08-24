@@ -4,6 +4,7 @@ import { decryptCredential } from './security.js';
 import { connectorPreflight } from './connector-preflight.js';
 import { variantPath } from './media-normalization.js';
 import { publishInstagramImage } from './instagram-direct.js';
+import { publishPinterestPin } from './pinterest-direct.js';
 import { tiktokDirectPhoto, tiktokDirectVideo } from './tiktok-direct.js';
 
 async function connectorSecret(env,c){ return c.secret_ciphertext ? decryptCredential(env,c.secret_ciphertext,c.secret_iv) : null; }
@@ -37,9 +38,10 @@ async function metaInstagramPublish(env,connector,post,assetUrl){
   return publishInstagramImage({igUserId:cfg.ig_user_id,token,imageUrl:assetUrl,caption:post.caption,apiVersion:cfg.api_version||'v25.0',host:cfg.host||'https://graph.facebook.com'});
 }
 async function pinterestPublish(env,connector,post,assetUrl,origin){
-  const token=(await connectorSecret(env,connector)); if(!token)throw new Error('Pinterest access token not configured'); const cfg=JSON.parse(connector.config_json||'{}'); if(!cfg.board_id)throw new Error('Pinterest connector requires board_id'); if(!assetUrl)throw new Error('Pinterest image Pin requires an approved graphic');
-  const link=post.tracking_code?`${origin}/r/${post.tracking_code}`:undefined; const body={board_id:String(cfg.board_id),title:String(post.product_name||'').slice(0,100)||undefined,description:String(post.caption||'').slice(0,800),link,media_source:{source_type:'image_url',url:assetUrl,is_standard:true}};
-  const r=await fetch('https://api.pinterest.com/v5/pins',{method:'POST',headers:{'content-type':'application/json','accept':'application/json','authorization':`Bearer ${token}`},body:JSON.stringify(body)}); const data=await r.json(); if(!r.ok)throw new Error(`Pinterest ${r.status}: ${data.message||JSON.stringify(data)}`); if(!data.id)throw new Error('Pinterest returned no Pin id'); return {externalId:data.id,state:'published'};
+  const token=(await connectorSecret(env,connector));
+  const cfg=JSON.parse(connector.config_json||'{}');
+  const link=post.tracking_code?`${origin}/r/${post.tracking_code}`:undefined;
+  return publishPinterestPin({token,boardId:cfg.board_id,imageUrl:assetUrl,description:post.caption,title:post.product_name||'',link});
 }
 async function tiktokPublish(env,connector,post,assetUrl){
   const token=await connectorSecret(env,connector); if(!token)throw new Error('TikTok access token not configured');
