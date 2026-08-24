@@ -3,6 +3,7 @@ import { health, resolveHealth, setSetting } from './db.js';
 export const DEFAULT_DRIVE_FOLDER_ID='13V50CtAtjWRZ0H_F9kBbjDdWBdsjxxDE';
 const COPY_BANK_TITLE='Marketing Copy Bank - Table Rock Press';
 const ARCHIVE_TITLE='Marketing Autopilot Archive.json';
+const DRIVE_FOLDER_MIME='application/vnd.google-apps.folder';
 
 export function driveSyncConfigured(env){
   return Boolean(env.GOOGLE_DRIVE_CLIENT_ID&&env.GOOGLE_DRIVE_CLIENT_SECRET&&env.GOOGLE_DRIVE_REFRESH_TOKEN);
@@ -23,12 +24,36 @@ async function driveJson(token,url,init={}){
   return data;
 }
 
+async function listChildren(token,parentId){
+  const files=[]; let pageToken='';
+  do{
+    const q=encodeURIComponent(`'${parentId}' in parents and trashed=false`);
+    const page=pageToken?`&pageToken=${encodeURIComponent(pageToken)}`:'';
+    const data=await driveJson(token,`https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=1000&fields=nextPageToken,files(id,name,mimeType,modifiedTime,md5Checksum,size)${page}`);
+    for(const file of data.files||[])files.push({...file,parent_id:parentId});
+    pageToken=data.nextPageToken||'';
+  }while(pageToken);
+  return files;
+}
+
+async function listFolderTree(token,rootFolderId){
+  const all=[]; const queue=[rootFolderId]; const visited=new Set();
+  while(queue.length){
+    const folderId=queue.shift();
+    if(visited.has(folderId))continue;
+    visited.add(folderId);
+    if(visited.size>250)throw new Error('Google Drive source exceeded 250 nested folders; sync stopped safely');
+    const children=await listChildren(token,folderId);
+    all.push(...children);
+    for(const child of children)if(child.mimeType===DRIVE_FOLDER_MIME)queue.push(child.id);
+  }
+  return all;
+}
+
 export async function listFolderFiles(env){
   if(!driveSyncConfigured(env))return [];
   const token=await accessToken(env); const folder=env.GOOGLE_DRIVE_FOLDER_ID||DEFAULT_DRIVE_FOLDER_ID;
-  const q=encodeURIComponent(`'${folder}' in parents and trashed=false`);
-  const data=await driveJson(token,`https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=100&fields=files(id,name,mimeType,modifiedTime,md5Checksum,size)`);
-  return data.files||[];
+  return listFolderTree(token,folder);
 }
 
 export function parseCopyBank(text){
@@ -78,8 +103,8 @@ async function buildArchive(env){
   return {schema:'marketing-autopilot-drive-archive-v1',generated_at:new Date().toISOString(),products:products.results||[],assets:assets.results||[],copy_items:copy.results||[],campaigns:campaigns.results||[],scheduled_posts:posts.results||[],sales_events:sales.results||[]};
 }
 
-async function upsertArchive(env,token,files){
-  const folder=env.GOOGLE_DRIVE_FOLDER_ID||DEFAULT_DRIVE_FOLDER_ID; const archive=await buildArchive(env); const body=JSON.stringify(archive,null,2); const existing=files.find(f=>f.name===ARCHIVE_TITLE);
+async function upsertArchive(env,token,rootFiles){
+  const folder=env.GOOGLE_DRIVE_FOLDER_ID||DEFAULT_DRIVE_FOLDER_ID; const archive=await buildArchive(env); const body=JSON.stringify(archive,null,2); const existing=rootFiles.find(f=>f.name===ARCHIVE_TITLE);
   if(existing){
     const r=await fetch(`https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existing.id)}?uploadType=media`,{method:'PATCH',headers:{authorization:`Bearer ${token}`,'content-type':'application/json; charset=utf-8'},body});
     if(!r.ok)throw new Error(`Google Drive archive update failed (${r.status})`);
@@ -95,9 +120,17 @@ async function upsertArchive(env,token,files){
 export async function syncGoogleDrive(env){
   if(!driveSyncConfigured(env))return {state:'disabled',reason:'Google Drive OAuth secrets are not configured'};
   try{
-    const token=await accessToken(env); const folder=env.GOOGLE_DRIVE_FOLDER_ID||DEFAULT_DRIVE_FOLDER_ID; const q=encodeURIComponent(`'${folder}' in parents and trashed=false`);
-    const listing=await driveJson(token,`https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=100&fields=files(id,name,mimeType,modifiedTime,md5Checksum,size)`); const files=listing.files||[];
-    const imported=await importCopyBank(env,token,files); const archive=await upsertArchive(env,token,files);
+    const token=await accessToken(env); const folder=env.GOOGLE_DRIVE_FOLDER_ID||DEFAULT_DRIVE_FOLDER_ID;
+    const rootFiles=await listChildren(token,folder); const files=[...rootFiles]; const queue=rootFiles.filter(f=>f.mimeType===DRIVE_FOLDER_MIME).map(f=>f.id); const visited=new Set([folder]);
+    while(queue.length){
+      const folderId=queue.shift();
+      if(visited.has(folderId))continue;
+      visited.add(folderId);
+      if(visited.size>250)throw new Error('Google Drive source exceeded 250 nested folders; sync stopped safely');
+      const children=await listChildren(token,folderId); files.push(...children);
+      for(const child of children)if(child.mimeType===DRIVE_FOLDER_MIME)queue.push(child.id);
+    }
+    const imported=await importCopyBank(env,token,files); const archive=await upsertArchive(env,token,rootFiles);
     await setSetting(env,'drive_sync_status',{folder_id:folder,last_success_at:new Date().toISOString(),source_files:files.length,copy_blocks:imported.blocks,copy_changed:imported.changed,archive_file_id:archive.file_id});
     await resolveHealth(env,'google-drive');
     return {state:'synced',source_files:files.length,imported,archive};
