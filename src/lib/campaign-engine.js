@@ -108,12 +108,16 @@ export function adaptPostingPolicy(policy, aggregate, optimization={}) {
   for (const [platform,p] of Object.entries(next)) {
     if(platform==='email') continue;
     const a=aggregate[platform]||{};
-    if(Number(a.impressions||0)<minImp) continue;
-    const ctr=Number(a.impressions)?Number(a.clicks||0)/Number(a.impressions):0;
-    const conv=Number(a.clicks)?Number(a.conversions||0)/Number(a.clicks):0;
+    const impressions=Number(a.impressions||0), clicks=Number(a.clicks||0), conversions=Number(a.conversions||0), revenue=Number(a.revenue_cents||0);
+    const hasSaleSignal=conversions>0 || revenue>0;
+    if(impressions<minImp && !hasSaleSignal) continue;
+    const ctr=impressions?clicks/impressions:0;
+    const conv=clicks?conversions/clicks:0;
     const current=Number(p.per_day||1);
-    if((conv>=0.03 || ctr>=0.02) && current<10) p.per_day=current+1;
-    if((conv===0 && ctr<0.005) && current>1) p.per_day=current-1;
+    // Paid outcomes outrank engagement: any observed sale/revenue is positive evidence even when click tracking is sparse.
+    if((hasSaleSignal || conv>=0.03 || ctr>=0.02) && current<10) p.per_day=current+1;
+    // Never reduce frequency while the same evaluation window contains a positive sale/revenue signal.
+    if(!hasSaleSignal && conv===0 && ctr<0.005 && current>1) p.per_day=current-1;
     p.per_day=clamp(p.per_day,1,10);
   }
   return next;
