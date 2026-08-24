@@ -44,6 +44,16 @@ test('performance policy can rise or fall within bounds',()=>{
   assert.equal(next.instagram.per_day,1);
 });
 
+test('sale evidence outranks weak engagement when adapting posting frequency',()=>{
+  const base={instagram:{per_day:1,times:['12:00']},pinterest:{per_day:3,times:['09:00','13:00','18:00']}};
+  const next=adaptPostingPolicy(base,{
+    instagram:{impressions:50,clicks:0,conversions:1,revenue_cents:499},
+    pinterest:{impressions:1000,clicks:1,conversions:0,revenue_cents:0}
+  },{minimum_impressions:300});
+  assert.equal(next.instagram.per_day,2);
+  assert.equal(next.pinterest.per_day,2);
+});
+
 test('timezone conversion schedules Chicago noon as UTC afternoon',()=>{
   const plan=generatePlan({products:[products[0]],assets:[assets[0]],copyItems:[copy[0]],postingPolicy:{facebook:{per_day:1,times:['12:00']}},startISO:'2026-08-24T00:00:00.000Z',origin:'https://app.example.com',timeZone:'America/Chicago'});
   assert.equal(plan[0].scheduled_for,'2026-08-24T17:00:00.000Z');
