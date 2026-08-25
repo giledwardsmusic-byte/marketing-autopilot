@@ -32,7 +32,7 @@ export function alertEmailConfigured(env){
 
 export async function sendAlertOnce(env,{key,subject,text,html}){
   if(!key)throw new Error('notification key is required');
-  if(!alertEmailConfigured(env))return {state:'disabled',reason:'RESEND_API_KEY, ALERT_EMAIL_TO and ALERT_EMAIL_FROM are required'};
+  if(!alertEmailConfigured(env))throw new Error('Email alerts are not configured: RESEND_API_KEY, ALERT_EMAIL_TO and ALERT_EMAIL_FROM are required');
   if(!(await claimNotification(env,key)))return {state:'duplicate'};
   const body={from:env.ALERT_EMAIL_FROM,to:[env.ALERT_EMAIL_TO],subject:String(subject||'Marketing Autopilot alert'),text:String(text||''),html:html||`<pre style="white-space:pre-wrap;font-family:system-ui">${esc(text||'')}</pre>`};
   try{
@@ -87,7 +87,9 @@ export async function notifyUnresolvedHealth(env){
   for(const row of rows){
     const text=`Marketing Autopilot needs attention.\n\nSeverity: ${row.severity}\nIssue: ${row.component}\n${row.message||''}\nDetected: ${row.created_at||''}`;
     try{out.push(await sendAlertOnce(env,{key:`health:${row.id}`,subject:`Marketing Autopilot ${String(row.severity||'alert').toUpperCase()}: ${row.component}`,text}));}
-    catch(e){out.push({state:'failed',error:String(e.message||e)});}
+    catch(e){out.push({state:'failed',health_event_id:row.id,error:String(e.message||e)});}
   }
+  const failed=out.filter(x=>x.state==='failed');
+  if(failed.length)throw new Error(`${failed.length} health alert(s) failed and will retry`);
   return out;
 }
