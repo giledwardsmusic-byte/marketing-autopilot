@@ -12,6 +12,7 @@ import { serveImageVariant } from './lib/media-normalization.js';
 import { syncGoogleDrive } from './lib/google-drive-sync.js';
 import { reconcileTikTokSubmissions } from './lib/tiktok-reconcile.js';
 import { connectInstagramFromFacebook } from './lib/instagram-connect.js';
+import { beginPinterestOAuth, completePinterestOAuth, beginTikTokOAuth, completeTikTokOAuth, refreshSocialOAuthConnectors } from './lib/social-oauth-connect.js';
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8'}});
 const SCHEDULER_LEASE_KEY='scheduler:lease';
@@ -102,6 +103,48 @@ async function connectInstagram(request,env){
   }
 }
 
+async function beginSocialOAuth(request,env,platform){
+  const user=await currentUser(env,request);
+  if(!user)return json({error:'Authentication required'},401);
+  if(user.role==='viewer')return json({error:'Viewer accounts are read-only'},403);
+  const origin=new URL(request.url).origin;
+  try{
+    const result=platform==='pinterest'?await beginPinterestOAuth(env,origin):await beginTikTokOAuth(env,origin);
+    return json({ok:true,...result});
+  }catch(e){
+    await health(env,`connect:${platform}`,'yellow',String(e.message||e).slice(0,300));
+    return json({error:String(e.message||e)},400);
+  }
+}
+
+function oauthResultPage(platform,ok,message){
+  const title=ok?`${platform} connected`:`${platform} connection failed`;
+  const safe=String(message||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return new Response(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font-family:system-ui;background:#111;color:#eee;padding:32px;max-width:680px;margin:auto}a{color:#9fd3ff}.card{background:#1c1c1c;padding:24px;border-radius:14px}</style><div class="card"><h1>${title}</h1><p>${safe}</p><p><a href="/">Return to Marketing Autopilot</a></p></div>`,{status:ok?200:400,headers:{'content-type':'text/html; charset=utf-8'}});
+}
+
+async function completeSocialOAuth(request,env,platform){
+  const url=new URL(request.url);
+  const externalError=url.searchParams.get('error_description')||url.searchParams.get('error');
+  if(externalError){
+    await health(env,`connect:${platform}`,'yellow',String(externalError).slice(0,300));
+    return oauthResultPage(platform,false,externalError);
+  }
+  const state=url.searchParams.get('state')||''; const code=url.searchParams.get('code')||'';
+  try{
+    const origin=url.origin;
+    const result=platform==='pinterest'
+      ? await completePinterestOAuth(env,{origin,state,code})
+      : await completeTikTokOAuth(env,{origin,state,code});
+    await resolveHealth(env,`connect:${platform}`);
+    const detail=platform==='pinterest'&&result.board_name?`Publishing board: ${result.board_name}.`:'Authorization saved securely.';
+    return oauthResultPage(platform,true,detail);
+  }catch(e){
+    await health(env,`connect:${platform}`,'yellow',String(e.message||e).slice(0,300));
+    return oauthResultPage(platform,false,String(e.message||e));
+  }
+}
+
 async function prepareRuntime(env){
   await ensureSchema(env);
   await ensureSandboxConnectors(env);
@@ -129,6 +172,10 @@ export default {
     const url=new URL(request.url);
     if(url.pathname==='/api/week/approve'&&request.method==='POST')return approveWholeWeek(request,env);
     if(url.pathname==='/api/connectors/instagram/from-facebook'&&request.method==='POST')return connectInstagram(request,env);
+    if(url.pathname==='/api/connectors/pinterest/oauth/start'&&request.method==='GET')return beginSocialOAuth(request,env,'pinterest');
+    if(url.pathname==='/api/connectors/tiktok/oauth/start'&&request.method==='GET')return beginSocialOAuth(request,env,'tiktok');
+    if(url.pathname==='/oauth/pinterest/callback'&&request.method==='GET')return completeSocialOAuth(request,env,'pinterest');
+    if(url.pathname==='/oauth/tiktok/callback'&&request.method==='GET')return completeSocialOAuth(request,env,'tiktok');
     if(url.pathname.startsWith('/media-variant/')&&request.method==='GET'){
       const parts=url.pathname.split('/').filter(Boolean);
       if(parts.length!==3)return new Response('Not found',{status:404});
@@ -141,6 +188,12 @@ export default {
     const leaseToken=await acquireSchedulerLease(env);
     if(!leaseToken)return;
     try{
+      try{
+        const refreshed=await refreshSocialOAuthConnectors(env);
+        for(const r of refreshed.filter(x=>x.state==='failed'))await health(env,`oauth-refresh:${r.id}`,'yellow',String(r.error||'OAuth token refresh failed').slice(0,300));
+      }catch(e){
+        await health(env,'oauth-refresh','yellow',`Social token refresh sweep failed: ${String(e.message||e).slice(0,220)}`);
+      }
       await preflightDueMedia(env);
       await base.scheduled(controller,env,ctx);
       try{
