@@ -60,9 +60,15 @@ export function parseCopyBank(text){
   const source=String(text||'').replace(/\r/g,'');
   const stop=source.indexOf('\nAsset inventory now visible in Drive');
   const body=stop>=0?source.slice(0,stop):source;
-  const re=/^[ \t]*(\d+)\.[ \t]+([^\n]+)\n([\s\S]*?)(?=^[ \t]*\d+\.[ \t]+[^\n]+\n|$)/gm;
-  const out=[]; let m;
-  while((m=re.exec(body))){const text=m[3].trim(); if(text)out.push({number:Number(m[1]),title:m[2].trim(),text});}
+  const matches=[...body.matchAll(/^[ \t]*(\d+)\.[ \t]+([^\n]+)\n/gm)];
+  const out=[];
+  for(let i=0;i<matches.length;i++){
+    const m=matches[i];
+    const start=m.index+m[0].length;
+    const end=i+1<matches.length?matches[i+1].index:body.length;
+    const copy=body.slice(start,end).trim();
+    if(copy)out.push({number:Number(m[1]),title:m[2].trim(),text:copy});
+  }
   return out;
 }
 
