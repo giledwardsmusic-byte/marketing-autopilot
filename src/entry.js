@@ -11,6 +11,7 @@ import { notifyPaidSale, notifyRecordedPaidSales, notifyUnresolvedHealth } from 
 import { serveImageVariant } from './lib/media-normalization.js';
 import { syncGoogleDrive } from './lib/google-drive-sync.js';
 import { reconcileTikTokSubmissions } from './lib/tiktok-reconcile.js';
+import { connectInstagramFromFacebook } from './lib/instagram-connect.js';
 
 const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8'}});
 const SCHEDULER_LEASE_KEY='scheduler:lease';
@@ -86,6 +87,21 @@ async function approveWholeWeek(request,env){
   return json({ok:true,approved:Number(result.meta?.changes||0),campaign_id:campaign.id});
 }
 
+async function connectInstagram(request,env){
+  if(!assertSameOrigin(request,env))return json({error:'Origin rejected'},403);
+  const user=await currentUser(env,request);
+  if(!user)return json({error:'Authentication required'},401);
+  if(user.role==='viewer')return json({error:'Viewer accounts are read-only'},403);
+  try{
+    const result=await connectInstagramFromFacebook(env);
+    await resolveHealth(env,'connect:instagram');
+    return json({ok:true,...result});
+  }catch(e){
+    await health(env,'connect:instagram','yellow',String(e.message||e).slice(0,300));
+    return json({error:String(e.message||e)},400);
+  }
+}
+
 async function prepareRuntime(env){
   await ensureSchema(env);
   await ensureSandboxConnectors(env);
@@ -112,6 +128,7 @@ export default {
     await prepareRuntime(env);
     const url=new URL(request.url);
     if(url.pathname==='/api/week/approve'&&request.method==='POST')return approveWholeWeek(request,env);
+    if(url.pathname==='/api/connectors/instagram/from-facebook'&&request.method==='POST')return connectInstagram(request,env);
     if(url.pathname.startsWith('/media-variant/')&&request.method==='GET'){
       const parts=url.pathname.split('/').filter(Boolean);
       if(parts.length!==3)return new Response('Not found',{status:404});
