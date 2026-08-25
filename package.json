@@ -10,7 +10,8 @@
     "deploy": "wrangler deploy",
     "db:local": "wrangler d1 migrations apply marketing-autopilot --local",
     "db:remote": "wrangler d1 migrations apply marketing-autopilot --remote",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "probe:live": "node scripts/probe-live.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.30.0"
