@@ -1,4 +1,4 @@
-export const RELEASE_ID='2026-08-25-social-oauth-v1';
+export const RELEASE_ID='2026-08-25-drive-media-v1';
 
 export const RELEASE_CAPABILITIES=Object.freeze({
   facebook_connected_route:true,
@@ -7,6 +7,7 @@ export const RELEASE_CAPABILITIES=Object.freeze({
   tiktok_oauth:true,
   google_drive_sync:true,
   marketing_copy_bank:true,
+  drive_media_ingestion:true,
   tracked_campaign_links:true,
   payhip_sales_attribution:true,
   paid_sale_email_alerts:true,
