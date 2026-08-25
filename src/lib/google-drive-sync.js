@@ -1,12 +1,23 @@
-import { health, resolveHealth, setSetting } from './db.js';
+import { health, resolveHealth, setSetting, setting } from './db.js';
 
 export const DEFAULT_DRIVE_FOLDER_ID='13V50CtAtjWRZ0H_F9kBbjDdWBdsjxxDE';
 const COPY_BANK_TITLE='Marketing Copy Bank - Table Rock Press';
 const ARCHIVE_TITLE='Marketing Autopilot Archive.json';
 const DRIVE_FOLDER_MIME='application/vnd.google-apps.folder';
+const DRIVE_MEDIA_MAX_BYTES=25*1024*1024;
+const DRIVE_MEDIA_MIMES=new Set(['image/jpeg','image/png','image/webp']);
 
 export function driveSyncConfigured(env){
   return Boolean(env.GOOGLE_DRIVE_CLIENT_ID&&env.GOOGLE_DRIVE_CLIENT_SECRET&&env.GOOGLE_DRIVE_REFRESH_TOKEN);
+}
+
+export function driveMediaCandidate(file){
+  if(!file||!DRIVE_MEDIA_MIMES.has(String(file.mimeType||'').toLowerCase()))return false;
+  const size=Number(file.size||0);
+  if(size<=0||size>DRIVE_MEDIA_MAX_BYTES)return false;
+  const name=String(file.name||'').toLowerCase();
+  if(name.includes('logo'))return false;
+  return true;
 }
 
 async function accessToken(env){
@@ -97,6 +108,63 @@ async function importCopyBank(env,token,files){
   return {file_id:doc.id,blocks:blocks.length,changed};
 }
 
+async function sha256Hex(bytes){
+  const digest=await crypto.subtle.digest('SHA-256',bytes);
+  return [...new Uint8Array(digest)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+function safeName(name){return String(name||'creative').replace(/[^a-zA-Z0-9._-]/g,'_').slice(0,180);}
+
+async function downloadDriveFile(token,file){
+  const r=await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.id)}?alt=media`,{headers:{authorization:`Bearer ${token}`}});
+  if(!r.ok)throw new Error(`Google Drive media download failed for ${file.name} (${r.status})`);
+  const bytes=await r.arrayBuffer();
+  if(bytes.byteLength>DRIVE_MEDIA_MAX_BYTES)throw new Error(`Drive media ${file.name} exceeded the 25 MB safety limit`);
+  return bytes;
+}
+
+function productForDriveCreative(file){
+  const name=String(file.name||'').toLowerCase();
+  return /\bbuddy\b/.test(name)?'prd_table_rock_buddy':null;
+}
+
+export async function importDriveMedia(env,token,files){
+  const previous=await setting(env,'drive_media_inventory',{});
+  const inventory={...(previous||{})};
+  let imported=0,unchanged=0,skipped=0,failed=0;
+  for(const file of files.filter(driveMediaCandidate)){
+    const version=`${file.modifiedTime||''}:${file.md5Checksum||''}:${file.size||''}`;
+    if(inventory[file.id]?.version===version&&inventory[file.id]?.asset_id){unchanged++;continue;}
+    try{
+      const bytes=await downloadDriveFile(token,file);
+      const hash=await sha256Hex(bytes);
+      const dup=await env.DB.prepare(`SELECT id,r2_key FROM assets WHERE sha256=? LIMIT 1`).bind(hash).first();
+      if(dup){inventory[file.id]={version,asset_id:dup.id,source_name:file.name,duplicate:true};unchanged++;continue;}
+      const aid=`ast_drive_${String(file.id).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,80)}`;
+      const existing=await env.DB.prepare(`SELECT id,r2_key FROM assets WHERE id=?`).bind(aid).first();
+      const key=`drive-source/${file.id}/${safeName(file.name)}`;
+      await env.MEDIA.put(key,bytes,{httpMetadata:{contentType:file.mimeType}});
+      const t=new Date().toISOString(); const tokenPublic=crypto.randomUUID().replaceAll('-','');
+      if(existing){
+        if(existing.r2_key&&existing.r2_key!==key)try{await env.MEDIA.delete(existing.r2_key);}catch{}
+        await env.DB.prepare(`UPDATE assets SET product_id=?,r2_key=?,original_name=?,mime_type=?,size_bytes=?,status='approved',sha256=?,perceptual_hint=?,updated_at=? WHERE id=?`)
+          .bind(productForDriveCreative(file),key,file.name,file.mimeType,bytes.byteLength,hash,`drive:${file.id}`,t,aid).run();
+      }else{
+        await env.DB.prepare(`INSERT INTO assets(id,product_id,r2_key,public_token,original_name,mime_type,size_bytes,campaign_type,platforms_json,purpose,status,sha256,perceptual_hint,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+          .bind(aid,productForDriveCreative(file),key,tokenPublic,file.name,file.mimeType,bytes.byteLength,'product',JSON.stringify(['facebook','instagram','pinterest','tiktok']),'sale','approved',hash,`drive:${file.id}`,t,t).run();
+      }
+      inventory[file.id]={version,asset_id:aid,source_name:file.name,r2_key:key}; imported++;
+    }catch(e){
+      inventory[file.id]={version,source_name:file.name,error:String(e.message||e).slice(0,240),failed_at:new Date().toISOString()}; failed++;
+    }
+  }
+  skipped=files.length-files.filter(driveMediaCandidate).length;
+  await setSetting(env,'drive_media_inventory',inventory);
+  if(failed)await health(env,'google-drive-media','yellow',`${failed} Drive creative(s) could not be imported; originals remain untouched and will retry on the next sync.`);
+  else await resolveHealth(env,'google-drive-media');
+  return {imported,unchanged,skipped,failed,tracked:Object.keys(inventory).length};
+}
+
 async function buildArchive(env){
   const [products,assets,copy,campaigns,posts,sales]=await Promise.all([
     env.DB.prepare(`SELECT * FROM products ORDER BY created_at`).all(),
@@ -136,10 +204,12 @@ export async function syncGoogleDrive(env){
       const children=await listChildren(token,folderId); files.push(...children);
       for(const child of children)if(child.mimeType===DRIVE_FOLDER_MIME)queue.push(child.id);
     }
-    const imported=await importCopyBank(env,token,files); const archive=await upsertArchive(env,token,rootFiles);
-    await setSetting(env,'drive_sync_status',{folder_id:folder,last_success_at:new Date().toISOString(),source_files:files.length,copy_blocks:imported.blocks,copy_changed:imported.changed,archive_file_id:archive.file_id});
+    const imported=await importCopyBank(env,token,files);
+    const media=await importDriveMedia(env,token,files);
+    const archive=await upsertArchive(env,token,rootFiles);
+    await setSetting(env,'drive_sync_status',{folder_id:folder,last_success_at:new Date().toISOString(),source_files:files.length,copy_blocks:imported.blocks,copy_changed:imported.changed,media_imported:media.imported,media_failed:media.failed,archive_file_id:archive.file_id});
     await resolveHealth(env,'google-drive');
-    return {state:'synced',source_files:files.length,imported,archive};
+    return {state:'synced',source_files:files.length,imported,media,archive};
   }catch(e){
     await health(env,'google-drive','yellow',`Drive sync failed: ${String(e.message||e).slice(0,300)}`);
     throw e;
