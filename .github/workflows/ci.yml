@@ -36,6 +36,7 @@ jobs:
           node --check src/lib/sandbox.js
           node --check src/lib/schema-bootstrap.js
           node --check src/lib/security.js
+          node --check src/lib/social-oauth-connect.js
           node --check src/lib/table-rock-seed.js
           node --check src/lib/tiktok-direct.js
           node --check src/lib/tiktok-oauth.js
@@ -45,5 +46,6 @@ jobs:
           node --check public/app.js
           node --check public/facebook-connect.js
           node --check public/instagram-connect.js
+          node --check public/social-oauth-connect.js
       - name: Worker bundle dry run
         run: npx wrangler deploy --dry-run --outdir .wrangler-dry-run
