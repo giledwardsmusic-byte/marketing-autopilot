@@ -27,7 +27,7 @@ async function driveJson(token,url,init={}){
 async function listChildren(token,parentId){
   const files=[]; let pageToken='';
   do{
-    const q=encodeURIComponent(`'${parentId}' in parents and trashed=false`);
+    const q=encodeURIComponent(`'${parentId}' in parents and trashed=false`).replace(/'/g,'%27');
     const page=pageToken?`&pageToken=${encodeURIComponent(pageToken)}`:'';
     const data=await driveJson(token,`https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=1000&fields=nextPageToken,files(id,name,mimeType,modifiedTime,md5Checksum,size)${page}`);
     for(const file of data.files||[])files.push({...file,parent_id:parentId});
@@ -60,7 +60,7 @@ export function parseCopyBank(text){
   const source=String(text||'').replace(/\r/g,'');
   const stop=source.indexOf('\nAsset inventory now visible in Drive');
   const body=stop>=0?source.slice(0,stop):source;
-  const re=/^\s*(\d+)\.\s+([^\n]+)\n([\s\S]*?)(?=^\s*\d+\.\s+[^\n]+\n|$)/gm;
+  const re=/^[ \t]*(\d+)\.[ \t]+([^\n]+)\n([\s\S]*?)(?=^[ \t]*\d+\.[ \t]+[^\n]+\n|$)/gm;
   const out=[]; let m;
   while((m=re.exec(body))){const text=m[3].trim(); if(text)out.push({number:Number(m[1]),title:m[2].trim(),text});}
   return out;
