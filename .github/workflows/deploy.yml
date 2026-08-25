@@ -34,8 +34,15 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "Cloudflare deploy skipped: CLOUDFLARE_API_TOKEN and/or CLOUDFLARE_ACCOUNT_ID is not configured in GitHub Actions secrets."
+            echo "Cloudflare deployment is blocked: CLOUDFLARE_API_TOKEN and/or CLOUDFLARE_ACCOUNT_ID is not configured in GitHub Actions secrets." >&2
           fi
+      - name: Block false-green deployment
+        if: steps.cf.outputs.ready != 'true'
+        shell: bash
+        run: |
+          echo "Deployment did not run, so this workflow must not report success." >&2
+          echo "Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID as GitHub Actions secrets, then rerun this workflow." >&2
+          exit 1
       - name: Deploy Worker
         if: steps.cf.outputs.ready == 'true'
         run: npx wrangler deploy
