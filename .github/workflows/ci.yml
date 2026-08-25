@@ -37,6 +37,7 @@ jobs:
           node --check src/lib/security.js
           node --check src/lib/table-rock-seed.js
           node --check src/lib/tiktok-direct.js
+          node --check src/lib/tiktok-oauth.js
           node --check src/lib/tiktok-reconcile.js
           node --check src/lib/utils.js
           node --check public/autopilot.js
