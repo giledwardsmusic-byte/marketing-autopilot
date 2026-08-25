@@ -26,6 +26,7 @@ jobs:
           node --check src/lib/connector-preflight.js
           node --check src/lib/db.js
           node --check src/lib/google-drive-sync.js
+          node --check src/lib/instagram-connect.js
           node --check src/lib/instagram-direct.js
           node --check src/lib/media-normalization.js
           node --check src/lib/notifications.js
@@ -42,5 +43,7 @@ jobs:
           node --check src/lib/utils.js
           node --check public/autopilot.js
           node --check public/app.js
+          node --check public/facebook-connect.js
+          node --check public/instagram-connect.js
       - name: Worker bundle dry run
         run: npx wrangler deploy --dry-run --outdir .wrangler-dry-run
