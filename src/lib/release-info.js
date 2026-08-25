@@ -7,6 +7,8 @@ export const RELEASE_CAPABILITIES=Object.freeze({
   tiktok_oauth:true,
   google_drive_sync:true,
   marketing_copy_bank:true,
+  tracked_campaign_links:true,
+  payhip_sales_attribution:true,
   paid_sale_email_alerts:true,
   unresolved_health_email_alerts:true,
   media_normalization:true,
