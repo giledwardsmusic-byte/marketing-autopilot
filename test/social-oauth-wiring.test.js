@@ -36,7 +36,7 @@ test('Pinterest gets a concrete publishing board before connector enablement',()
 
 test('Settings loads working Pinterest and TikTok connection controls',()=>{
   assert.match(html,/social-oauth-connect\.js/);
-  assert.match(ui,/Connect Pinterest/);
-  assert.match(ui,/Connect TikTok/);
+  assert.match(ui,/makeWrap\('connectPinterest','Pinterest'/);
+  assert.match(ui,/makeWrap\('connectTikTok','TikTok'/);
   assert.match(ui,/location\.assign\(r\.url\)/);
 });
