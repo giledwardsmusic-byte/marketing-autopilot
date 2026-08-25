@@ -39,6 +39,10 @@ test('email alerts remain disabled until free provider credentials are configure
   assert.equal(alertEmailConfigured({RESEND_API_KEY:'x',ALERT_EMAIL_TO:'a@example.com',ALERT_EMAIL_FROM:'b@example.com'}),true);
 });
 
+test('required alert delivery fails closed when email is unconfigured',async()=>{
+  await assert.rejects(()=>sendAlertOnce({},{key:'required',subject:'s',text:'t'}),/Email alerts are not configured/);
+});
+
 test('successful notification is deduplicated',async()=>{
   const DB=dbMock();
   const oldFetch=globalThis.fetch; let calls=0;
@@ -128,5 +132,22 @@ test('health sweep covers every unresolved event, including more than 50',async(
     assert.equal(out.length,75);
     assert.equal(calls,75);
     assert.ok(out.every(x=>x.state==='sent'));
+  }finally{globalThis.fetch=oldFetch;}
+});
+
+test('health sweep fails closed when any required email delivery fails',async()=>{
+  const rows=[{id:'h1',component:'publish:instagram',severity:'red',message:'blocked',created_at:'2026-08-25T00:00:00.000Z'}];
+  const DB=dbMock();
+  const originalPrepare=DB.prepare.bind(DB);
+  DB.prepare=(sql)=>{
+    if(sql.includes('FROM health_events WHERE resolved=0'))return {async all(){return {results:rows};}};
+    return originalPrepare(sql);
+  };
+  const oldFetch=globalThis.fetch;
+  globalThis.fetch=async()=>new Response(JSON.stringify({message:'temporary'}),{status:503,headers:{'content-type':'application/json'}});
+  try{
+    const env={DB,RESEND_API_KEY:'x',ALERT_EMAIL_TO:'a@example.com',ALERT_EMAIL_FROM:'b@example.com'};
+    await assert.rejects(()=>notifyUnresolvedHealth(env),/1 health alert\(s\) failed and will retry/);
+    assert.equal(DB.store.has('notification:health:h1'),false);
   }finally{globalThis.fetch=oldFetch;}
 });
