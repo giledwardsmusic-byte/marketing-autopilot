@@ -7,7 +7,21 @@ const r=await fetch(`${base}/release.json`,{headers:{'cache-control':'no-cache'}
 if(!r.ok)throw new Error(`Live release probe failed (${r.status})`);
 const data=await r.json();
 if(data.release_id!==expected)throw new Error(`Deployment mismatch: live=${data.release_id||'unknown'} expected=${expected}`);
-const required=['instagram_from_facebook','pinterest_oauth','tiktok_oauth','google_drive_sync','marketing_copy_bank','paid_sale_email_alerts','unresolved_health_email_alerts','media_normalization','media_quota_fallback','invalid_media_fail_closed'];
+const required=[
+  'instagram_from_facebook',
+  'pinterest_oauth',
+  'tiktok_oauth',
+  'google_drive_sync',
+  'marketing_copy_bank',
+  'drive_media_ingestion',
+  'tracked_campaign_links',
+  'payhip_sales_attribution',
+  'paid_sale_email_alerts',
+  'unresolved_health_email_alerts',
+  'media_normalization',
+  'media_quota_fallback',
+  'invalid_media_fail_closed'
+];
 const missing=required.filter(k=>data.capabilities?.[k]!==true);
 if(missing.length)throw new Error(`Live release is missing capabilities: ${missing.join(', ')}`);
 console.log(`Live deployment verified: ${data.release_id}`);
