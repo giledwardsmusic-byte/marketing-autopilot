@@ -6,6 +6,7 @@ const required = [
   'tiktok_oauth',
   'google_drive_sync',
   'marketing_copy_bank',
+  'drive_media_ingestion',
   'tracked_campaign_links',
   'payhip_sales_attribution',
   'paid_sale_email_alerts',
