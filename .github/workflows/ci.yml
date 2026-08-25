@@ -15,6 +15,8 @@ jobs:
           node-version: 22
       - run: npm install
       - run: npm test
+      - name: Verify release manifest
+        run: npm run verify:release
       - name: Syntax check
         run: |
           node --check src/entry.js
@@ -42,6 +44,8 @@ jobs:
           node --check src/lib/tiktok-oauth.js
           node --check src/lib/tiktok-reconcile.js
           node --check src/lib/utils.js
+          node --check scripts/probe-live.mjs
+          node --check scripts/verify-release-manifest.mjs
           node --check public/autopilot.js
           node --check public/app.js
           node --check public/facebook-connect.js
