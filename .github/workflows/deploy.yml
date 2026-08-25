@@ -18,13 +18,14 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       MA_BASE_URL: https://marketing-autopilot.giledwardsmusic.workers.dev
-      MA_RELEASE_ID: 2026-08-25-social-oauth-v1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm install
+      - name: Verify release manifest
+        run: npm run verify:release
       - name: Detect deploy credentials
         id: cf
         shell: bash
