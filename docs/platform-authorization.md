@@ -57,21 +57,24 @@ Connector type: `tiktok`
 
 Required connector data:
 - encrypted TikTok access token with Content Posting authorization
+- refresh token stored only inside the encrypted server-side credential bundle
 - `config_json.creator_id`
 - approved supported media with a public HTTPS media URL
 
 The direct-post core is wired into the generic publisher dispatcher. It queries creator information, validates an allowed privacy level, supports direct video/photo initialization as implemented, and can fetch post status. Platform-specific media normalization/fallback rules apply before the media URL reaches the connector.
 
-Verification before first TikTok test:
-1. Store token encrypted.
-2. Confirm creator ID/config.
-3. Confirm approved supported media.
-4. Run preflight.
-5. Query creator info before posting.
-6. Use an allowed privacy setting; testing should remain private when platform/app status requires it.
-7. Record publish ID and poll status.
+OAuth preparation now uses TikTok's v2 web authorization flow, requests `user.info.basic` and `video.publish`, exchanges the returned authorization code server-side, and stores access/refresh expiry metadata so the short-lived access token can be refreshed without repeated user login. `TIKTOK_CLIENT_SECRET` and refresh tokens must never be committed to GitHub.
 
-Current state: prepared; external Content Posting authorization and creator/domain verification remain before live test.
+Verification before first TikTok test:
+1. Register the exact HTTPS `TIKTOK_REDIRECT_URI` in TikTok Login Kit.
+2. Obtain app approval for Content Posting and `video.publish`.
+3. Complete the one-time TikTok consent screen and store the returned token bundle encrypted.
+4. Confirm creator ID/config and approved supported media.
+5. Run preflight and query creator info before posting.
+6. Use an allowed privacy setting; testing should remain private when platform/app status requires it.
+7. Record publish ID and poll status until `PUBLISH_COMPLETE` before counting success.
+
+Current state: OAuth/token lifecycle and publishing path prepared; external TikTok developer approval and user consent remain before live test.
 
 ## Google Drive source/archive
 
