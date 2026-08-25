@@ -75,12 +75,14 @@ export async function serveImageVariant(env,platform,token){
   const obj=await env.MEDIA.get(row.r2_key); if(!obj)return new Response('Not found',{status:404});
   if(!env.IMAGES)return fallbackOriginal(env,platform,token,row,obj,'Cloudflare Images binding unavailable');
   try{
-    const transformed=(await env.IMAGES.input(obj.body)
+    const pipeline=env.IMAGES.input(obj.body)
       .transform({width:profile.width,height:profile.height,fit:profile.fit})
-      .output({format:profile.format,quality:profile.quality})).response();
+      .output({format:profile.format,quality:profile.quality});
+    const transformed=await pipeline.response();
     if(!transformed.ok){
-      const body=await transformed.text().catch(()=>`HTTP ${transformed.status}`);
-      const quota=transformed.status===429||body.includes('9422');
+      let body=`HTTP ${transformed.status}`;
+      try{if(typeof transformed.text==='function')body=await transformed.text();}catch{}
+      const quota=transformed.status===429||String(body).includes('9422');
       return fallbackOriginal(env,platform,token,row,obj,quota?'Cloudflare transformation quota exhausted':`Cloudflare transform HTTP ${transformed.status}`);
     }
     return new Response(transformed.body,{status:transformed.status,headers:{...Object.fromEntries(transformed.headers),'content-type':profile.format,'cache-control':'public,max-age=86400,stale-while-revalidate=604800','x-ma-media-state':'normalized','x-ma-platform':String(platform),'x-ma-ratio':profile.ratio}});
