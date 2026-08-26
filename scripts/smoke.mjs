@@ -8,7 +8,8 @@ const login=await req('/api/auth/login',{method:'POST',body:{email,password}});o
 const p=await req('/api/products',{method:'POST',body:{name:`Smoke Product ${Date.now()}`,product_type:'digital',short_description:'Temporary smoke-test product',sales_url:'https://example.com',status:'active'}});ok('product create',!!p.id);
 const products=await req('/api/products');ok('product read',products.some(x=>x.id===p.id));
 await req('/api/copy',{method:'POST',body:{product_id:p.id,text:'Temporary smoke-test marketing copy.',platform:'facebook'}});const copy=await req('/api/copy');ok('copy create/read',copy.some(x=>x.product_id===p.id));
-const blob=new Blob(['fake image bytes'],{type:'image/png'});const f1=new FormData();f1.set('product_id',p.id);f1.set('status','approved');f1.append('files',blob,'smoke.png');const u1=await req('/api/assets/upload',{method:'POST',body:f1});ok('asset upload',u1.items?.length===1);
+const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z5n8AAAAASUVORK5CYII=','base64');
+const blob=new Blob([png],{type:'image/png'});const f1=new FormData();f1.set('product_id',p.id);f1.set('status','approved');f1.append('files',blob,'smoke.png');const u1=await req('/api/assets/upload',{method:'POST',body:f1});ok('real PNG asset upload',u1.items?.length===1);
 const f2=new FormData();f2.set('product_id',p.id);f2.set('status','approved');f2.append('files',blob,'renamed-smoke.png');const u2=await req('/api/assets/upload',{method:'POST',body:f2});ok('exact duplicate detection',u2.items?.[0]?.duplicate===true);
 const settings=await req('/api/settings');ok('cost ceiling exists',Number(settings.cost_control?.approved_monthly_cost_cents)>=0);ok('timezone exists',!!settings.marketing_timezone?.iana);
 console.log(`Smoke checks passed (${checks.length}):\n- ${checks.join('\n- ')}`);
