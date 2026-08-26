@@ -15,13 +15,14 @@ test('Drive media ingestion excludes logos, unsupported types, empty files, and 
   assert.equal(driveMediaCandidate({name:'huge.png',mimeType:'image/png',size:String(26*1024*1024)}),false);
 });
 
-test('Drive creatives are product-scoped before they become publishable',()=>{
+test('Supported creatives in the designated Drive source are visible immediately after sync',()=>{
   assert.equal(productForDriveCreative({name:'Buddy ad 1.png'}),'prd_table_rock_buddy');
-  assert.equal(driveCreativeStatus({name:'Buddy ad 1.png'}),'approved');
+  assert.equal(driveCreativeStatus({name:'Buddy ad 1.png',mimeType:'image/png',size:'2500000'}),'approved');
   assert.equal(productForDriveCreative({name:'Finn cover.jpg'}),null);
-  assert.equal(driveCreativeStatus({name:'Finn cover.jpg'}),'paused');
+  assert.equal(driveCreativeStatus({name:'Finn cover.jpg',mimeType:'image/jpeg',size:'1200000'}),'approved');
   assert.equal(productForDriveCreative({name:'Oliver Owl ad.png'}),null);
-  assert.equal(driveCreativeStatus({name:'Oliver Owl ad.png'}),'paused');
+  assert.equal(driveCreativeStatus({name:'Oliver Owl ad.png',mimeType:'image/png',size:'1200000'}),'approved');
   assert.equal(productForDriveCreative({name:'Sage Nut cover.webp'}),null);
-  assert.equal(driveCreativeStatus({name:'Sage Nut cover.webp'}),'paused');
+  assert.equal(driveCreativeStatus({name:'Sage Nut cover.webp',mimeType:'image/webp',size:'1200000'}),'approved');
+  assert.equal(driveCreativeStatus({name:'Table Rock Press Logo.jpg',mimeType:'image/jpeg',size:'300000'}),'paused');
 });
