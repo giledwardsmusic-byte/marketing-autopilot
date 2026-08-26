@@ -27,7 +27,7 @@ async function safeDriveStatus(env) {
   const [assetRow, copyRow, healthRow] = await Promise.all([
     env.DB.prepare(`SELECT COUNT(*) n FROM assets WHERE perceptual_hint LIKE 'drive:%' OR r2_key LIKE 'drive-source/%'`).first(),
     env.DB.prepare(`SELECT COUNT(*) n FROM copy_items WHERE id LIKE 'cpy_drive_%'`).first(),
-    env.DB.prepare(`SELECT COUNT(*) n FROM health_events WHERE resolved=0 AND code IN ('google-drive','google-drive-media')`).first()
+    env.DB.prepare(`SELECT COUNT(*) n FROM health_events WHERE resolved=0 AND component IN ('google-drive','google-drive-media')`).first()
   ]);
   return {
     ok: true,
