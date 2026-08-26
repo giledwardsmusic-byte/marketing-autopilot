@@ -1,4 +1,5 @@
 import { health, resolveHealth, setSetting, setting } from './db.js';
+import { imageDimensions } from './image-dimensions.js';
 
 export const DEFAULT_DRIVE_FOLDER_ID='13V50CtAtjWRZ0H_F9kBbjDdWBdsjxxDE';
 const COPY_BANK_TITLE='Marketing Copy Bank - Table Rock Press';
@@ -137,9 +138,17 @@ export async function importDriveMedia(env,token,files){
     if(inventory[file.id]?.version===version&&inventory[file.id]?.asset_id){unchanged++;continue;}
     try{
       const bytes=await downloadDriveFile(token,file);
+      const dimensions=imageDimensions(bytes,file.mimeType);
+      if(!dimensions?.width||!dimensions?.height)throw new Error(`Could not determine image dimensions for ${file.name}; import paused so quota fallback stays safe`);
+      const {width,height}=dimensions;
       const hash=await sha256Hex(bytes);
-      const dup=await env.DB.prepare(`SELECT id,r2_key FROM assets WHERE sha256=? LIMIT 1`).bind(hash).first();
-      if(dup){inventory[file.id]={version,asset_id:dup.id,source_name:file.name,duplicate:true};unchanged++;continue;}
+      const dup=await env.DB.prepare(`SELECT id,r2_key,width,height FROM assets WHERE sha256=? LIMIT 1`).bind(hash).first();
+      if(dup){
+        if((!Number(dup.width)||!Number(dup.height))&&width&&height){
+          await env.DB.prepare(`UPDATE assets SET width=?,height=?,updated_at=? WHERE id=?`).bind(width,height,new Date().toISOString(),dup.id).run();
+        }
+        inventory[file.id]={version,asset_id:dup.id,source_name:file.name,duplicate:true,width,height};unchanged++;continue;
+      }
       const aid=`ast_drive_${String(file.id).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,80)}`;
       const existing=await env.DB.prepare(`SELECT id,r2_key FROM assets WHERE id=?`).bind(aid).first();
       const key=`drive-source/${file.id}/${safeName(file.name)}`;
@@ -147,13 +156,13 @@ export async function importDriveMedia(env,token,files){
       const t=new Date().toISOString(); const tokenPublic=crypto.randomUUID().replaceAll('-','');
       if(existing){
         if(existing.r2_key&&existing.r2_key!==key)try{await env.MEDIA.delete(existing.r2_key);}catch{}
-        await env.DB.prepare(`UPDATE assets SET product_id=?,r2_key=?,original_name=?,mime_type=?,size_bytes=?,status='approved',sha256=?,perceptual_hint=?,updated_at=? WHERE id=?`)
-          .bind(productForDriveCreative(file),key,file.name,file.mimeType,bytes.byteLength,hash,`drive:${file.id}`,t,aid).run();
+        await env.DB.prepare(`UPDATE assets SET product_id=?,r2_key=?,original_name=?,mime_type=?,size_bytes=?,width=?,height=?,status='approved',sha256=?,perceptual_hint=?,updated_at=? WHERE id=?`)
+          .bind(productForDriveCreative(file),key,file.name,file.mimeType,bytes.byteLength,width,height,hash,`drive:${file.id}`,t,aid).run();
       }else{
-        await env.DB.prepare(`INSERT INTO assets(id,product_id,r2_key,public_token,original_name,mime_type,size_bytes,campaign_type,platforms_json,purpose,status,sha256,perceptual_hint,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-          .bind(aid,productForDriveCreative(file),key,tokenPublic,file.name,file.mimeType,bytes.byteLength,'product',JSON.stringify(['facebook','instagram','pinterest','tiktok']),'sale','approved',hash,`drive:${file.id}`,t,t).run();
+        await env.DB.prepare(`INSERT INTO assets(id,product_id,r2_key,public_token,original_name,mime_type,size_bytes,width,height,campaign_type,platforms_json,purpose,status,sha256,perceptual_hint,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+          .bind(aid,productForDriveCreative(file),key,tokenPublic,file.name,file.mimeType,bytes.byteLength,width,height,'product',JSON.stringify(['facebook','instagram','pinterest','tiktok']),'sale','approved',hash,`drive:${file.id}`,t,t).run();
       }
-      inventory[file.id]={version,asset_id:aid,source_name:file.name,r2_key:key}; imported++;
+      inventory[file.id]={version,asset_id:aid,source_name:file.name,r2_key:key,width,height}; imported++;
     }catch(e){
       inventory[file.id]={version,source_name:file.name,error:String(e.message||e).slice(0,240),failed_at:new Date().toISOString()}; failed++;
     }
