@@ -60,6 +60,22 @@ test('unsafe original is paused before platform publishing and retained for retr
   assert.ok(env.state.health.some(x=>x.component==='media:post:post1'&&x.severity==='red'));
 });
 
+test('blocked 503 media response is paused before platform publishing',async()=>{
+  const env=envForMediaRetry();
+  let originalReads=0;
+  env.state.asset.mime_type='image/jpeg';
+  env.MEDIA.get=async key=>{
+    if(String(key).startsWith('derived/'))return null;
+    originalReads++;
+    return originalReads===1?{body:new Uint8Array([1,2,3])}:null;
+  };
+  const result=await preflightDueMedia(env);
+  assert.deepEqual(result,{checked:1,paused:1,requeued:0});
+  assert.equal(env.state.post.status,'paused');
+  assert.match(env.state.post.error_message,/^MEDIA_BLOCKED_RETRY:/);
+  assert.ok(env.state.health.some(x=>x.component==='media:post:post1'&&x.severity==='red'));
+});
+
 test('paused media post automatically returns to the queue when fallback becomes safe',async()=>{
   const env=envForMediaRetry();
   await preflightDueMedia(env);
