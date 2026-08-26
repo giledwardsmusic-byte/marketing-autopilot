@@ -22,30 +22,16 @@
       <p id="loginError" class="error"></p>
     </div>
   </div>
-
   <div id="app" class="app hidden">
-    <header class="status-strip">
-      <div id="healthOrb" class="orb green"></div>
-      <div id="healthLabel" class="status-label">Checking system…</div>
-      <div class="status-title">Autopilot</div>
-      <button id="signout" class="signout">Sign out</button>
-    </header>
+    <header class="status-strip"><div id="healthOrb" class="orb green"></div><div id="healthLabel" class="status-label">Checking system…</div><div class="status-title">Autopilot</div><button id="signout" class="signout">Sign out</button></header>
     <main id="main" class="main"><div class="empty">Loading…</div></main>
-    <nav class="tabs" aria-label="Primary">
-      <button data-tab="dashboard" class="active">Dashboard</button>
-      <button data-tab="week">This Week</button>
-      <button data-tab="products">Products</button>
-      <button data-tab="library">Library</button>
-      <button data-tab="performance">Results</button>
-      <button data-tab="attention">Attention<span id="attnDot" class="dot hidden"></span></button>
-      <button data-tab="settings">Settings</button>
-    </nav>
+    <nav class="tabs" aria-label="Primary"><button data-tab="dashboard" class="active">Dashboard</button><button data-tab="week">This Week</button><button data-tab="products">Products</button><button data-tab="library">Library</button><button data-tab="performance">Results</button><button data-tab="attention">Attention<span id="attnDot" class="dot hidden"></span></button><button data-tab="settings">Settings</button></nav>
   </div>
   <div id="toast" class="toast hidden"></div>
   <dialog id="modal"><div id="modalBody"></div></dialog>
   <script type="module" src="/autopilot.js?v=3"></script>
-  <script type="module" src="/facebook-connect.js?v=1"></script>
-  <script type="module" src="/instagram-connect.js?v=1"></script>
-  <script type="module" src="/social-oauth-connect.js?v=1"></script>
+  <script type="module" src="/facebook-connect.js?v=2"></script>
+  <script type="module" src="/instagram-connect.js?v=2"></script>
+  <script type="module" src="/social-oauth-connect.js?v=2"></script>
 </body>
 </html>
