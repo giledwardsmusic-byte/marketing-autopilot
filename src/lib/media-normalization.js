@@ -20,6 +20,13 @@ export function variantPath(platform,token){
   return `/media-variant/${encodeURIComponent(String(platform).toLowerCase())}/${encodeURIComponent(token)}`;
 }
 
+export function variantStorageKey(platform,token,sha256=''){
+  profileForPlatform(platform);
+  if(!token)throw new Error('public media token is required');
+  const source=String(sha256||'unhashed').replace(/[^a-zA-Z0-9_-]/g,'').slice(0,80)||'unhashed';
+  return `derived/${String(platform).toLowerCase()}/${encodeURIComponent(String(token))}-${source}.jpg`;
+}
+
 export function validateOriginalForPlatform(platform,row){
   const p=String(platform||'').toLowerCase();
   const mime=String(row?.mime_type||'').toLowerCase();
@@ -55,6 +62,10 @@ async function noteFallback(env,platform,token,message,severity='yellow'){
   try{await sendAlertOnce(env,{key:`media:${platform}:${token}:${severity}`,subject:`Marketing Autopilot media ${severity==='red'?'blocked':'fallback'}: ${platform}`,text:message});}catch{}
 }
 
+function normalizedResponse(body,platform,profile,cacheState='generated'){
+  return new Response(body,{status:200,headers:{'content-type':profile.format,'cache-control':'public,max-age=86400,stale-while-revalidate=604800','x-ma-media-state':'normalized','x-ma-platform':String(platform),'x-ma-ratio':profile.ratio,'x-ma-variant-cache':cacheState}});
+}
+
 async function fallbackOriginal(env,platform,token,row,reason){
   const check=validateOriginalForPlatform(platform,row);
   if(!check.ok){
@@ -77,9 +88,18 @@ async function fallbackOriginal(env,platform,token,row,reason){
 
 export async function serveImageVariant(env,platform,token){
   const profile=profileForPlatform(platform);
-  const row=await env.DB.prepare(`SELECT r2_key,mime_type,size_bytes,width,height,status FROM assets WHERE public_token=? LIMIT 1`).bind(token).first();
+  const row=await env.DB.prepare(`SELECT r2_key,mime_type,size_bytes,width,height,status,sha256 FROM assets WHERE public_token=? LIMIT 1`).bind(token).first();
   if(!row||!['approved','experimental'].includes(row.status))return new Response('Not found',{status:404});
   if(!String(row.mime_type||'').startsWith('image/'))return new Response('Source asset is not an image',{status:415});
+
+  // Successful derivatives are immutable by source hash. This preserves the original, avoids repeated
+  // transformation quota use, and makes rollback trivial: deleting a derived object only forces regeneration.
+  const cacheKey=variantStorageKey(platform,token,row.sha256);
+  try{
+    const cached=await env.MEDIA.get(cacheKey);
+    if(cached)return normalizedResponse(cached.body,platform,profile,'hit');
+  }catch{}
+
   const obj=await env.MEDIA.get(row.r2_key); if(!obj)return new Response('Not found',{status:404});
   if(!env.IMAGES)return fallbackOriginal(env,platform,token,row,'Cloudflare Images binding unavailable');
   try{
@@ -93,7 +113,14 @@ export async function serveImageVariant(env,platform,token){
       const quota=transformed.status===429||String(body).includes('9422');
       return fallbackOriginal(env,platform,token,row,quota?'Cloudflare transformation quota exhausted':`Cloudflare transform HTTP ${transformed.status}`);
     }
-    return new Response(transformed.body,{status:transformed.status,headers:{...Object.fromEntries(transformed.headers),'content-type':profile.format,'cache-control':'public,max-age=86400,stale-while-revalidate=604800','x-ma-media-state':'normalized','x-ma-platform':String(platform),'x-ma-ratio':profile.ratio}});
+    const bytes=await transformed.arrayBuffer();
+    let cacheState='generated';
+    try{
+      await env.MEDIA.put(cacheKey,bytes,{httpMetadata:{contentType:profile.format},customMetadata:{source_sha256:String(row.sha256||''),platform:String(platform),ratio:profile.ratio}});
+    }catch{
+      cacheState='uncached';
+    }
+    return normalizedResponse(bytes,platform,profile,cacheState);
   }catch(e){
     const msg=String(e.message||e);
     return fallbackOriginal(env,platform,token,row,msg.includes('9422')?'Cloudflare transformation quota exhausted':msg.slice(0,180));
