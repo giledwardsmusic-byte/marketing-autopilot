@@ -1,4 +1,4 @@
-import { health } from './db.js';
+import { health, resolveHealth } from './db.js';
 import { sendAlertOnce } from './notifications.js';
 
 export const PLATFORM_IMAGE_PROFILES=Object.freeze({
@@ -56,8 +56,16 @@ export function validateOriginalForPlatform(platform,row){
   return {ok:false,reason:`unsupported platform ${platform}`};
 }
 
+function mediaHealthComponent(platform,token){
+  return `media:${platform}:${token}`;
+}
+
+async function clearMediaHealth(env,platform,token){
+  try{await resolveHealth(env,mediaHealthComponent(platform,token));}catch{}
+}
+
 async function noteFallback(env,platform,token,message,severity='yellow'){
-  const component=`media:${platform}:${token}`;
+  const component=mediaHealthComponent(platform,token);
   try{await health(env,component,severity,message);}catch{}
   try{await sendAlertOnce(env,{key:`media:${platform}:${token}:${severity}`,subject:`Marketing Autopilot media ${severity==='red'?'blocked':'fallback'}: ${platform}`,text:message});}catch{}
 }
@@ -73,8 +81,6 @@ async function fallbackOriginal(env,platform,token,row,reason){
     await noteFallback(env,platform,token,message,'red');
     return new Response(message,{status:415,headers:{'x-ma-media-state':'blocked','x-ma-fallback-reason':String(check.reason).slice(0,180)}});
   }
-  // A transform attempt may consume/disturb the original ReadableStream. Always reopen the R2 object
-  // before serving a fallback so quota exhaustion can never produce an empty/broken post.
   const fresh=await env.MEDIA.get(row.r2_key);
   if(!fresh){
     const message=`${platform} post media was paused because normalization failed (${reason}) and the original asset could not be reopened from storage.`;
@@ -92,12 +98,13 @@ export async function serveImageVariant(env,platform,token){
   if(!row||!['approved','experimental'].includes(row.status))return new Response('Not found',{status:404});
   if(!String(row.mime_type||'').startsWith('image/'))return new Response('Source asset is not an image',{status:415});
 
-  // Successful derivatives are immutable by source hash. This preserves the original, avoids repeated
-  // transformation quota use, and makes rollback trivial: deleting a derived object only forces regeneration.
   const cacheKey=variantStorageKey(platform,token,row.sha256);
   try{
     const cached=await env.MEDIA.get(cacheKey);
-    if(cached)return normalizedResponse(cached.body,platform,profile,'hit');
+    if(cached){
+      await clearMediaHealth(env,platform,token);
+      return normalizedResponse(cached.body,platform,profile,'hit');
+    }
   }catch{}
 
   const obj=await env.MEDIA.get(row.r2_key); if(!obj)return new Response('Not found',{status:404});
@@ -120,6 +127,7 @@ export async function serveImageVariant(env,platform,token){
     }catch{
       cacheState='uncached';
     }
+    await clearMediaHealth(env,platform,token);
     return normalizedResponse(bytes,platform,profile,cacheState);
   }catch(e){
     const msg=String(e.message||e);
