@@ -3,11 +3,18 @@ import { audit, health, resolveHealth } from './db.js';
 import { fetchTikTokPostStatus } from './tiktok-direct.js';
 import { nowIso } from './utils.js';
 
+const DEFAULT_PENDING_ALERT_MS=6*60*60*1000;
+
 export function classifyTikTokOutcome(data={}){
   const status=String(data?.status||'').toUpperCase();
   if(status==='PUBLISH_COMPLETE') return {state:'published',reason:null};
   if(status==='FAILED') return {state:'failed',reason:String(data?.fail_reason||'TikTok processing failed')};
   return {state:'pending',reason:null};
+}
+
+export function shouldEscalateTikTokPending(updatedAt,now=Date.now(),thresholdMs=DEFAULT_PENDING_ALERT_MS){
+  const updated=Date.parse(String(updatedAt||''));
+  return Number.isFinite(updated) && Number(now)-updated>=thresholdMs;
 }
 
 async function adjustUsage(env,row,delta){
@@ -17,7 +24,7 @@ async function adjustUsage(env,row,delta){
 }
 
 export async function reconcileTikTokSubmissions(env){
-  const rows=(await env.DB.prepare(`SELECT sp.id,sp.status,sp.external_post_id,sp.asset_id,sp.copy_id,sp.connector_id,
+  const rows=(await env.DB.prepare(`SELECT sp.id,sp.status,sp.external_post_id,sp.asset_id,sp.copy_id,sp.connector_id,sp.updated_at,
       c.secret_ciphertext,c.secret_iv
     FROM scheduled_posts sp
     JOIN connectors c ON c.id=sp.connector_id
@@ -28,7 +35,7 @@ export async function reconcileTikTokSubmissions(env){
     ORDER BY sp.updated_at ASC
     LIMIT 25`).all()).results||[];
 
-  let checked=0,published=0,failed=0,pending=0;
+  let checked=0,published=0,failed=0,pending=0,stale=0;
   for(const row of rows){
     checked++;
     try{
@@ -62,11 +69,14 @@ export async function reconcileTikTokSubmissions(env){
       if(row.status==='published'){
         await adjustUsage(env,row,-1);
         await env.DB.prepare(`UPDATE scheduled_posts SET status='submitted',published_at=NULL,error_message=NULL,updated_at=? WHERE id=?`).bind(nowIso(),row.id).run();
+      }else if(shouldEscalateTikTokPending(row.updated_at)){
+        await health(env,`publish:tiktok:${row.id}`,'yellow','TikTok submission is still pending after 6 hours. It remains uncounted as published and will continue to be checked automatically.');
+        stale++;
       }
       pending++;
     }catch(e){
       await health(env,`publish:tiktok:${row.id}`,'yellow',`TikTok submission status check failed; the post will be checked again: ${String(e.message||e).slice(0,700)}`);
     }
   }
-  return {checked,published,failed,pending};
+  return {checked,published,failed,pending,stale};
 }
