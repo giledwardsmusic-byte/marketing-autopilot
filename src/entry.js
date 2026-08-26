@@ -59,7 +59,7 @@ export async function preflightDueMedia(env){
         }
         continue;
       }
-      if(response.status===415&&response.headers.get('x-ma-media-state')==='blocked'){
+      if(response.headers.get('x-ma-media-state')==='blocked'){
         const detail=(await response.text()).slice(0,700);
         await env.DB.prepare(`UPDATE scheduled_posts SET status='paused',error_message=?,updated_at=? WHERE id=?`).bind(`${MEDIA_RETRY_PREFIX} ${detail}`,nowIso(),row.id).run();
         await health(env,`media:post:${row.id}`,'red',`Post paused before publishing because safe media could not be produced. ${detail}`.slice(0,900));
