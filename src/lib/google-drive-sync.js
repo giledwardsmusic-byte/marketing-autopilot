@@ -130,7 +130,7 @@ export function productForDriveCreative(file){
 }
 
 export function driveCreativeStatus(file){
-  return productForDriveCreative(file)?'approved':'paused';
+  return driveMediaCandidate(file)?'approved':'paused';
 }
 
 export async function importDriveMedia(env,token,files){
