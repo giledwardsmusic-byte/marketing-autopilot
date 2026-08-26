@@ -35,8 +35,9 @@ export async function sendAlertOnce(env,{key,subject,text,html}){
   if(!alertEmailConfigured(env))throw new Error('Email alerts are not configured: RESEND_API_KEY, ALERT_EMAIL_TO and ALERT_EMAIL_FROM are required');
   if(!(await claimNotification(env,key)))return {state:'duplicate'};
   const body={from:env.ALERT_EMAIL_FROM,to:[env.ALERT_EMAIL_TO],subject:String(subject||'Marketing Autopilot alert'),text:String(text||''),html:html||`<pre style="white-space:pre-wrap;font-family:system-ui">${esc(text||'')}</pre>`};
+  const providerIdempotencyKey=`marketing-autopilot:${String(key)}`.slice(0,256);
   try{
-    const r=await fetch('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${env.RESEND_API_KEY}`,'content-type':'application/json'},body:JSON.stringify(body)});
+    const r=await fetch('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${env.RESEND_API_KEY}`,'content-type':'application/json','idempotency-key':providerIdempotencyKey},body:JSON.stringify(body)});
     let data={};try{data=await r.json()}catch{}
     if(!r.ok)throw new Error(`Resend ${r.status}: ${data?.message||JSON.stringify(data)}`);
     await markSent(env,key,{provider:'resend',provider_id:data?.id||null});
