@@ -1,6 +1,6 @@
 import base from './entry.js';
 import { setting, health } from './lib/db.js';
-import { driveSyncConfigured, syncGoogleDrive } from './lib/google-drive-sync.js';
+import { driveSyncConfigured, syncGoogleDrive, DEFAULT_DRIVE_FOLDER_ID } from './lib/google-drive-sync.js';
 
 const DRIVE_SYNC_INTERVAL_MS = 60 * 60 * 1000;
 
@@ -21,26 +21,14 @@ async function syncDriveIfDue(env) {
   }
 }
 
-async function safeDriveStatus(env) {
-  const configured = driveSyncConfigured(env);
-  const status = await setting(env, 'drive_sync_status', {});
-  const [assetRow, copyRow, healthRow] = await Promise.all([
-    env.DB.prepare(`SELECT COUNT(*) n FROM assets WHERE perceptual_hint LIKE 'drive:%' OR r2_key LIKE 'drive-source/%'`).first(),
-    env.DB.prepare(`SELECT COUNT(*) n FROM copy_items WHERE id LIKE 'cpy_drive_%'`).first(),
-    env.DB.prepare(`SELECT COUNT(*) n FROM health_events WHERE resolved=0 AND component IN ('google-drive','google-drive-media')`).first()
-  ]);
+function safeDriveStatus(env) {
   return {
     ok: true,
-    configured,
-    sync_due: configured ? driveSyncDue(status) : false,
-    last_success_at: status?.last_success_at || null,
-    source_files: Number(status?.source_files || 0),
-    media_imported_last_sync: Number(status?.media_imported || 0),
-    media_failed_last_sync: Number(status?.media_failed || 0),
-    drive_assets: Number(assetRow?.n || 0),
-    drive_copy_items: Number(copyRow?.n || 0),
-    unresolved_drive_health: Number(healthRow?.n || 0),
-    folder_id: status?.folder_id || null
+    configured: driveSyncConfigured(env),
+    client_id_present: Boolean(env.GOOGLE_DRIVE_CLIENT_ID),
+    client_secret_present: Boolean(env.GOOGLE_DRIVE_CLIENT_SECRET),
+    refresh_token_present: Boolean(env.GOOGLE_DRIVE_REFRESH_TOKEN),
+    folder_id: env.GOOGLE_DRIVE_FOLDER_ID || DEFAULT_DRIVE_FOLDER_ID
   };
 }
 
@@ -48,7 +36,7 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/system/drive-status') {
-      return new Response(JSON.stringify(await safeDriveStatus(env)), {
+      return new Response(JSON.stringify(safeDriveStatus(env)), {
         status: 200,
         headers: {
           'content-type': 'application/json; charset=utf-8',
