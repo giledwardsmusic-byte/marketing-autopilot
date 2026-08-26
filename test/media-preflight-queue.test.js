@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { preflightDueMedia } from '../src/entry.js';
 
 function envForMediaRetry(){
-  const state={post:{id:'post1',platform:'instagram',status:'scheduled',error_message:null,public_token:'tok'},asset:{r2_key:'assets/a',mime_type:'image/png',size_bytes:500000,width:1080,height:1350,status:'approved'},health:[]};
+  const state={post:{id:'post1',platform:'instagram',status:'scheduled',error_message:null,public_token:'tok'},asset:{r2_key:'assets/a',mime_type:'image/png',size_bytes:500000,width:1080,height:1350,status:'approved',sha256:'sourcehash'},health:[]};
   const DB={
     prepare(sql){
       return {
@@ -40,7 +40,13 @@ function envForMediaRetry(){
   };
   return {
     state,DB,
-    MEDIA:{async get(){return {body:new Uint8Array([1,2,3])};}},
+    MEDIA:{
+      async get(key){
+        if(String(key).startsWith('derived/'))return null;
+        return {body:new Uint8Array([1,2,3])};
+      },
+      async put(){}
+    },
     IMAGES:{input(){return {transform(){return this;},output(){return {async response(){return new Response('Cloudflare Images error 9422',{status:429});}};}};}}
   };
 }
