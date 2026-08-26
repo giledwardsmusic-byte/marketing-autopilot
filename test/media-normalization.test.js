@@ -47,10 +47,12 @@ test('fallback fails closed for unknown dimensions and oversized files',()=>{
   assert.equal(validateOriginalForPlatform('pinterest',{mime_type:'image/jpeg',size_bytes:21*1024*1024,width:1000,height:1500}).ok,false);
 });
 
-function quotaEnv(asset){
+function quotaEnv(asset,{missingOnReopen=false}={}){
   const healthEvents=[];
+  let mediaGets=0;
   return {
     healthEvents,
+    get mediaGets(){return mediaGets;},
     DB:{
       prepare(sql){
         return {
@@ -70,7 +72,7 @@ function quotaEnv(asset){
         };
       }
     },
-    MEDIA:{async get(){return {body:new Uint8Array([1,2,3])};}},
+    MEDIA:{async get(){mediaGets++; if(missingOnReopen&&mediaGets>1)return null; return {body:new Uint8Array([mediaGets,2,3])};}},
     IMAGES:{
       input(){return {
         transform(){return this;},
@@ -80,12 +82,14 @@ function quotaEnv(asset){
   };
 }
 
-test('Cloudflare quota error 9422 serves the valid original and logs a warning',async()=>{
+test('Cloudflare quota error 9422 reopens and serves a fresh valid original',async()=>{
   const env=quotaEnv({r2_key:'assets/a.jpg',mime_type:'image/jpeg',size_bytes:500000,width:1080,height:1350,status:'approved'});
   const response=await serveImageVariant(env,'instagram','tok');
   assert.equal(response.status,200);
   assert.equal(response.headers.get('x-ma-media-state'),'original-fallback');
   assert.equal(response.headers.get('content-type'),'image/jpeg');
+  assert.equal(env.mediaGets,2,'fallback must reopen R2 after a transform attempt');
+  assert.deepEqual([...new Uint8Array(await response.arrayBuffer())],[2,2,3]);
   assert.equal(env.healthEvents.length,1);
   assert.equal(env.healthEvents[0].severity,'yellow');
   assert.match(env.healthEvents[0].message,/quota exhausted/i);
@@ -97,7 +101,19 @@ test('Cloudflare quota error fails closed when original is invalid for destinati
   const response=await serveImageVariant(env,'instagram','tok');
   assert.equal(response.status,415);
   assert.equal(response.headers.get('x-ma-media-state'),'blocked');
+  assert.equal(env.mediaGets,1,'invalid originals must not be reopened or served');
   assert.equal(env.healthEvents.length,1);
   assert.equal(env.healthEvents[0].severity,'red');
   assert.match(env.healthEvents[0].message,/paused instead of sending broken media/i);
+});
+
+test('fallback fails closed if the original disappears before it can be reopened',async()=>{
+  const env=quotaEnv({r2_key:'assets/a.jpg',mime_type:'image/jpeg',size_bytes:500000,width:1080,height:1350,status:'approved'},{missingOnReopen:true});
+  const response=await serveImageVariant(env,'instagram','tok');
+  assert.equal(response.status,503);
+  assert.equal(response.headers.get('x-ma-media-state'),'blocked');
+  assert.equal(env.mediaGets,2);
+  assert.equal(env.healthEvents.length,1);
+  assert.equal(env.healthEvents[0].severity,'red');
+  assert.match(env.healthEvents[0].message,/could not be reopened/i);
 });
