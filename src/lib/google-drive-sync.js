@@ -180,16 +180,24 @@ export async function importDriveMedia(env,token,files){
   return {imported,unchanged,skipped,failed,tracked:Object.keys(inventory).length};
 }
 
-async function buildArchive(env){
-  const [products,assets,copy,campaigns,posts,sales]=await Promise.all([
+export async function buildArchive(env){
+  const [products,assets,copy,campaigns,posts,sales,healthEvents,connectors,auditEvents,settingsRows]=await Promise.all([
     env.DB.prepare(`SELECT * FROM products ORDER BY created_at`).all(),
     env.DB.prepare(`SELECT id,product_id,original_name,mime_type,size_bytes,width,height,status,sha256,created_at,updated_at FROM assets ORDER BY created_at`).all(),
     env.DB.prepare(`SELECT * FROM copy_items ORDER BY created_at`).all(),
     env.DB.prepare(`SELECT * FROM campaigns ORDER BY generated_at`).all(),
     env.DB.prepare(`SELECT * FROM scheduled_posts ORDER BY scheduled_for`).all(),
-    env.DB.prepare(`SELECT * FROM sales_events ORDER BY occurred_at`).all()
+    env.DB.prepare(`SELECT * FROM sales_events ORDER BY occurred_at`).all(),
+    env.DB.prepare(`SELECT * FROM health_events ORDER BY created_at`).all(),
+    env.DB.prepare(`SELECT id,name,connector_type,platform,enabled,priority,cost_cents_per_post,last_success_at,last_error_at,last_error,created_at,updated_at FROM connectors ORDER BY platform,priority`).all(),
+    env.DB.prepare(`SELECT * FROM audit_events ORDER BY created_at`).all(),
+    env.DB.prepare(`SELECT key,value_json,updated_at FROM settings ORDER BY key`).all()
   ]);
-  return {schema:'marketing-autopilot-drive-archive-v1',generated_at:new Date().toISOString(),products:products.results||[],assets:assets.results||[],copy_items:copy.results||[],campaigns:campaigns.results||[],scheduled_posts:posts.results||[],sales_events:sales.results||[]};
+  return {
+    schema:'marketing-autopilot-drive-archive-v2',generated_at:new Date().toISOString(),
+    products:products.results||[],assets:assets.results||[],copy_items:copy.results||[],campaigns:campaigns.results||[],scheduled_posts:posts.results||[],sales_events:sales.results||[],
+    health_events:healthEvents.results||[],connectors:connectors.results||[],audit_events:auditEvents.results||[],settings:settingsRows.results||[]
+  };
 }
 
 async function upsertArchive(env,token,rootFiles){

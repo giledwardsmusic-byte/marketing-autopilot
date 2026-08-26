@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_DRIVE_FOLDER_ID, driveSyncConfigured, listFolderFiles, parseCopyBank } from '../src/lib/google-drive-sync.js';
+import { DEFAULT_DRIVE_FOLDER_ID, buildArchive, driveSyncConfigured, listFolderFiles, parseCopyBank } from '../src/lib/google-drive-sync.js';
 
 test('uses the designated Marketing Autopilot Drive folder',()=>{
   assert.equal(DEFAULT_DRIVE_FOLDER_ID,'13V50CtAtjWRZ0H_F9kBbjDdWBdsjxxDE');
@@ -42,4 +42,32 @@ test('Drive source discovery traverses nested folders and follows pagination',as
     assert.equal(files.some(f=>f.id==='root-file'),true);
     assert.equal(seen.some(s=>s.includes('pageToken=next-root')),true);
   }finally{globalThis.fetch=originalFetch;}
+});
+
+test('Drive archive preserves recovery and notification state without connector secrets',async()=>{
+  const rows={
+    products:[{id:'p1'}],assets:[{id:'a1'}],copy_items:[{id:'c1'}],campaigns:[{id:'camp1'}],scheduled_posts:[{id:'post1'}],sales_events:[{id:'sale1'}],
+    health_events:[{id:'health1',component:'media:instagram',severity:'red',resolved:0}],
+    connectors:[{id:'ig1',name:'Instagram Direct',connector_type:'direct',platform:'instagram',enabled:1,priority:10,cost_cents_per_post:0,last_success_at:null,last_error_at:null,last_error:null,created_at:'2026-08-26',updated_at:'2026-08-26'}],
+    audit_events:[{id:'audit1',event_type:'post.failed'}],
+    settings:[{key:'notification:health:health1',value_json:'{"state":"sent"}',updated_at:'2026-08-26'}]
+  };
+  const queries=[];
+  const env={DB:{prepare(sql){
+    queries.push(sql);
+    let key='';
+    for(const candidate of Object.keys(rows))if(sql.includes(`FROM ${candidate}`)){key=candidate;break;}
+    return {all:async()=>({results:rows[key]||[]})};
+  }}};
+  const archive=await buildArchive(env);
+  assert.equal(archive.schema,'marketing-autopilot-drive-archive-v2');
+  assert.equal(archive.health_events[0].id,'health1');
+  assert.equal(archive.audit_events[0].id,'audit1');
+  assert.equal(archive.settings[0].key,'notification:health:health1');
+  assert.equal(archive.connectors[0].platform,'instagram');
+  assert.equal('secret_ciphertext' in archive.connectors[0],false);
+  assert.equal('secret_iv' in archive.connectors[0],false);
+  const connectorQuery=queries.find(q=>q.includes('FROM connectors'))||'';
+  assert.equal(connectorQuery.includes('secret_ciphertext'),false);
+  assert.equal(connectorQuery.includes('secret_iv'),false);
 });
