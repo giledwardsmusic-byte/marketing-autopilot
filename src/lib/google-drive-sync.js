@@ -124,9 +124,13 @@ async function downloadDriveFile(token,file){
   return bytes;
 }
 
-function productForDriveCreative(file){
-  const name=String(file.name||'').toLowerCase();
+export function productForDriveCreative(file){
+  const name=String(file?.name||'').toLowerCase();
   return /\bbuddy\b/.test(name)?'prd_table_rock_buddy':null;
+}
+
+export function driveCreativeStatus(file){
+  return productForDriveCreative(file)?'approved':'paused';
 }
 
 export async function importDriveMedia(env,token,files){
@@ -154,15 +158,17 @@ export async function importDriveMedia(env,token,files){
       const key=`drive-source/${file.id}/${safeName(file.name)}`;
       await env.MEDIA.put(key,bytes,{httpMetadata:{contentType:file.mimeType}});
       const t=new Date().toISOString(); const tokenPublic=crypto.randomUUID().replaceAll('-','');
+      const productId=productForDriveCreative(file);
+      const assetStatus=driveCreativeStatus(file);
       if(existing){
         if(existing.r2_key&&existing.r2_key!==key)try{await env.MEDIA.delete(existing.r2_key);}catch{}
-        await env.DB.prepare(`UPDATE assets SET product_id=?,r2_key=?,original_name=?,mime_type=?,size_bytes=?,width=?,height=?,status='approved',sha256=?,perceptual_hint=?,updated_at=? WHERE id=?`)
-          .bind(productForDriveCreative(file),key,file.name,file.mimeType,bytes.byteLength,width,height,hash,`drive:${file.id}`,t,aid).run();
+        await env.DB.prepare(`UPDATE assets SET product_id=?,r2_key=?,original_name=?,mime_type=?,size_bytes=?,width=?,height=?,status=?,sha256=?,perceptual_hint=?,updated_at=? WHERE id=?`)
+          .bind(productId,key,file.name,file.mimeType,bytes.byteLength,width,height,assetStatus,hash,`drive:${file.id}`,t,aid).run();
       }else{
         await env.DB.prepare(`INSERT INTO assets(id,product_id,r2_key,public_token,original_name,mime_type,size_bytes,width,height,campaign_type,platforms_json,purpose,status,sha256,perceptual_hint,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-          .bind(aid,productForDriveCreative(file),key,tokenPublic,file.name,file.mimeType,bytes.byteLength,width,height,'product',JSON.stringify(['facebook','instagram','pinterest','tiktok']),'sale','approved',hash,`drive:${file.id}`,t,t).run();
+          .bind(aid,productId,key,tokenPublic,file.name,file.mimeType,bytes.byteLength,width,height,'product',JSON.stringify(['facebook','instagram','pinterest','tiktok']),'sale',assetStatus,hash,`drive:${file.id}`,t,t).run();
       }
-      inventory[file.id]={version,asset_id:aid,source_name:file.name,r2_key:key,width,height}; imported++;
+      inventory[file.id]={version,asset_id:aid,source_name:file.name,r2_key:key,width,height,product_id:productId,status:assetStatus}; imported++;
     }catch(e){
       inventory[file.id]={version,source_name:file.name,error:String(e.message||e).slice(0,240),failed_at:new Date().toISOString()}; failed++;
     }
