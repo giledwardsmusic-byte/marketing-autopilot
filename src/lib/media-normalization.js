@@ -107,7 +107,12 @@ export async function serveImageVariant(env,platform,token){
     }
   }catch{}
 
-  const obj=await env.MEDIA.get(row.r2_key); if(!obj)return new Response('Not found',{status:404});
+  const obj=await env.MEDIA.get(row.r2_key);
+  if(!obj){
+    const message=`${platform} post media was paused because the approved source asset is missing from storage. No platform publishing call should be attempted until the source is restored.`;
+    await noteFallback(env,platform,token,message,'red');
+    return new Response(message,{status:415,headers:{'x-ma-media-state':'blocked','x-ma-fallback-reason':'source asset unavailable'}});
+  }
   if(!env.IMAGES)return fallbackOriginal(env,platform,token,row,'Cloudflare Images binding unavailable');
   try{
     const pipeline=env.IMAGES.input(obj.body)
