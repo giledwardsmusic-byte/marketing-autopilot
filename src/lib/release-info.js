@@ -13,6 +13,7 @@ export const RELEASE_CAPABILITIES=Object.freeze({
   paid_sale_email_alerts:true,
   unresolved_health_email_alerts:true,
   media_normalization:true,
+  persistent_derived_media:true,
   media_quota_fallback:true,
   invalid_media_fail_closed:true
 });
