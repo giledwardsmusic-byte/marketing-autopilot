@@ -1,5 +1,5 @@
 name = "marketing-autopilot"
-main = "src/entry.js"
+main = "src/runtime.js"
 compatibility_date = "2026-08-01"
 
 [assets]
