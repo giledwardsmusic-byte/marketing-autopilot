@@ -21,8 +21,43 @@ async function syncDriveIfDue(env) {
   }
 }
 
+async function safeDriveStatus(env) {
+  const configured = driveSyncConfigured(env);
+  const status = await setting(env, 'drive_sync_status', {});
+  const [assetRow, copyRow, healthRow] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) n FROM assets WHERE perceptual_hint LIKE 'drive:%' OR r2_key LIKE 'drive-source/%'`).first(),
+    env.DB.prepare(`SELECT COUNT(*) n FROM copy_items WHERE id LIKE 'cpy_drive_%'`).first(),
+    env.DB.prepare(`SELECT COUNT(*) n FROM health_events WHERE resolved=0 AND code IN ('google-drive','google-drive-media')`).first()
+  ]);
+  return {
+    ok: true,
+    configured,
+    sync_due: configured ? driveSyncDue(status) : false,
+    last_success_at: status?.last_success_at || null,
+    source_files: Number(status?.source_files || 0),
+    media_imported_last_sync: Number(status?.media_imported || 0),
+    media_failed_last_sync: Number(status?.media_failed || 0),
+    drive_assets: Number(assetRow?.n || 0),
+    drive_copy_items: Number(copyRow?.n || 0),
+    unresolved_drive_health: Number(healthRow?.n || 0),
+    folder_id: status?.folder_id || null
+  };
+}
+
 export default {
-  fetch: base.fetch,
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    if (request.method === 'GET' && url.pathname === '/system/drive-status') {
+      return new Response(JSON.stringify(await safeDriveStatus(env)), {
+        status: 200,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store'
+        }
+      });
+    }
+    return base.fetch(request, env, ctx);
+  },
   async scheduled(controller, env, ctx) {
     await base.scheduled(controller, env, ctx);
     // The base worker performs its full daily Drive sync at 03:17 UTC.
