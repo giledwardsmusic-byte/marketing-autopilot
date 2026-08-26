@@ -14,11 +14,13 @@ const required=[
   'google_drive_sync',
   'marketing_copy_bank',
   'drive_media_ingestion',
+  'drive_creative_product_scoping',
   'tracked_campaign_links',
   'payhip_sales_attribution',
   'paid_sale_email_alerts',
   'unresolved_health_email_alerts',
   'media_normalization',
+  'persistent_derived_media',
   'media_quota_fallback',
   'invalid_media_fail_closed'
 ];
