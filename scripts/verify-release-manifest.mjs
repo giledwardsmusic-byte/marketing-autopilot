@@ -12,6 +12,7 @@ const required = [
   'paid_sale_email_alerts',
   'unresolved_health_email_alerts',
   'media_normalization',
+  'persistent_derived_media',
   'media_quota_fallback',
   'invalid_media_fail_closed',
 ];
