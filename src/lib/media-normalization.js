@@ -55,16 +55,24 @@ async function noteFallback(env,platform,token,message,severity='yellow'){
   try{await sendAlertOnce(env,{key:`media:${platform}:${token}:${severity}`,subject:`Marketing Autopilot media ${severity==='red'?'blocked':'fallback'}: ${platform}`,text:message});}catch{}
 }
 
-async function fallbackOriginal(env,platform,token,row,obj,reason){
+async function fallbackOriginal(env,platform,token,row,reason){
   const check=validateOriginalForPlatform(platform,row);
   if(!check.ok){
     const message=`${platform} post media was paused instead of sending broken media. Image normalization failed (${reason}); original cannot be used safely: ${check.reason}.`;
     await noteFallback(env,platform,token,message,'red');
     return new Response(message,{status:415,headers:{'x-ma-media-state':'blocked','x-ma-fallback-reason':String(check.reason).slice(0,180)}});
   }
+  // A transform attempt may consume/disturb the original ReadableStream. Always reopen the R2 object
+  // before serving a fallback so quota exhaustion can never produce an empty/broken post.
+  const fresh=await env.MEDIA.get(row.r2_key);
+  if(!fresh){
+    const message=`${platform} post media was paused because normalization failed (${reason}) and the original asset could not be reopened from storage.`;
+    await noteFallback(env,platform,token,message,'red');
+    return new Response(message,{status:503,headers:{'x-ma-media-state':'blocked','x-ma-fallback-reason':'original asset unavailable'}});
+  }
   const message=`${platform} image normalization was bypassed (${reason}). The original asset passed platform fallback validation and was served so the scheduled post can continue.`;
   await noteFallback(env,platform,token,message,'yellow');
-  return new Response(obj.body,{status:200,headers:{'content-type':row.mime_type,'cache-control':'public,max-age=3600','x-ma-media-state':'original-fallback','x-ma-platform':String(platform)}});
+  return new Response(fresh.body,{status:200,headers:{'content-type':row.mime_type,'cache-control':'public,max-age=3600','x-ma-media-state':'original-fallback','x-ma-platform':String(platform)}});
 }
 
 export async function serveImageVariant(env,platform,token){
@@ -73,7 +81,7 @@ export async function serveImageVariant(env,platform,token){
   if(!row||!['approved','experimental'].includes(row.status))return new Response('Not found',{status:404});
   if(!String(row.mime_type||'').startsWith('image/'))return new Response('Source asset is not an image',{status:415});
   const obj=await env.MEDIA.get(row.r2_key); if(!obj)return new Response('Not found',{status:404});
-  if(!env.IMAGES)return fallbackOriginal(env,platform,token,row,obj,'Cloudflare Images binding unavailable');
+  if(!env.IMAGES)return fallbackOriginal(env,platform,token,row,'Cloudflare Images binding unavailable');
   try{
     const pipeline=env.IMAGES.input(obj.body)
       .transform({width:profile.width,height:profile.height,fit:profile.fit})
@@ -83,11 +91,11 @@ export async function serveImageVariant(env,platform,token){
       let body=`HTTP ${transformed.status}`;
       try{if(typeof transformed.text==='function')body=await transformed.text();}catch{}
       const quota=transformed.status===429||String(body).includes('9422');
-      return fallbackOriginal(env,platform,token,row,obj,quota?'Cloudflare transformation quota exhausted':`Cloudflare transform HTTP ${transformed.status}`);
+      return fallbackOriginal(env,platform,token,row,quota?'Cloudflare transformation quota exhausted':`Cloudflare transform HTTP ${transformed.status}`);
     }
     return new Response(transformed.body,{status:transformed.status,headers:{...Object.fromEntries(transformed.headers),'content-type':profile.format,'cache-control':'public,max-age=86400,stale-while-revalidate=604800','x-ma-media-state':'normalized','x-ma-platform':String(platform),'x-ma-ratio':profile.ratio}});
   }catch(e){
     const msg=String(e.message||e);
-    return fallbackOriginal(env,platform,token,row,obj,msg.includes('9422')?'Cloudflare transformation quota exhausted':msg.slice(0,180));
+    return fallbackOriginal(env,platform,token,row,msg.includes('9422')?'Cloudflare transformation quota exhausted':msg.slice(0,180));
   }
 }
