@@ -1,10 +1,11 @@
 import base from './entry.js';
-import { setting, health, resolveHealth } from './lib/db.js';
+import { setting, setSetting, health, resolveHealth } from './lib/db.js';
 import { driveSyncConfigured, syncGoogleDrive, DEFAULT_DRIVE_FOLDER_ID } from './lib/google-drive-sync.js';
 import { beginGoogleDriveOAuth, completeGoogleDriveOAuth, googleDriveRedirectUri } from './lib/google-drive-oauth.js';
 import { currentUser } from './lib/auth.js';
 
 const DRIVE_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+const DRIVE_STATUS_PROBE_THROTTLE_MS = 5 * 60 * 1000;
 
 export function driveSyncDue(status, nowMs = Date.now()) {
   const last = Date.parse(status?.last_success_at || '');
@@ -21,6 +22,20 @@ async function syncDriveIfDue(env) {
     await health(env, 'google-drive', 'yellow', `Drive sync retry failed: ${String(e.message || e).slice(0, 300)}`);
     return { state: 'failed', error: String(e.message || e) };
   }
+}
+
+async function syncDriveFromStatusProbe(env) {
+  if (!driveSyncConfigured(env)) return { state:'disabled' };
+  const existing = await setting(env, 'drive_sync_status', {});
+  if (!driveSyncDue(existing)) return { state:'fresh' };
+  const gate = await setting(env, 'drive_status_probe', {});
+  const lastAttempt = Date.parse(gate?.last_attempt_at || '');
+  const now = Date.now();
+  if (Number.isFinite(lastAttempt) && now - lastAttempt < DRIVE_STATUS_PROBE_THROTTLE_MS) {
+    return { state:'throttled', last_attempt_at:gate.last_attempt_at };
+  }
+  await setSetting(env, 'drive_status_probe', { last_attempt_at:new Date(now).toISOString() });
+  return syncDriveIfDue(env);
 }
 
 function safeDriveStatus(env, origin) {
@@ -52,7 +67,9 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/system/drive-status') {
-      return new Response(JSON.stringify(safeDriveStatus(env, url.origin)), {
+      const attempt = await syncDriveFromStatusProbe(env);
+      const syncStatus = await setting(env, 'drive_sync_status', {});
+      return new Response(JSON.stringify({ ...safeDriveStatus(env, url.origin), attempt, sync_status:syncStatus }), {
         status: 200,
         headers: {
           'content-type': 'application/json; charset=utf-8',
@@ -95,10 +112,6 @@ export default {
   },
   async scheduled(controller, env, ctx) {
     await base.scheduled(controller, env, ctx);
-    // The base worker performs its full daily Drive sync at 03:17 UTC.
-    // On the existing five-minute trigger, retry only when the last successful
-    // sync is missing or at least one hour old. This makes first-time creative
-    // ingestion prompt without turning every scheduler tick into Drive traffic.
     if (controller.cron === '*/5 * * * *') await syncDriveIfDue(env);
   }
 };
