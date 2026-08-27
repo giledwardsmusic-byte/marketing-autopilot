@@ -3,6 +3,7 @@ import { setting, health, resolveHealth } from './lib/db.js';
 import { driveSyncConfigured, syncGoogleDrive, DEFAULT_DRIVE_FOLDER_ID } from './lib/google-drive-sync.js';
 import { beginGoogleDriveOAuth, completeGoogleDriveOAuth, googleDriveRedirectUri } from './lib/google-drive-oauth.js';
 import { currentUser } from './lib/auth.js';
+import { sendAlertOnce, alertEmailConfigured } from './lib/notifications.js';
 
 const DRIVE_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
@@ -60,6 +61,29 @@ export default {
           'cache-control': 'no-store'
         }
       });
+    }
+    if (request.method === 'GET' && url.pathname === '/system/alert-test') {
+      const user = await currentUser(env, request);
+      if (!user) return new Response(JSON.stringify({ error:'Authentication required' }), { status:401, headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'} });
+      if (user.role === 'viewer') return new Response(JSON.stringify({ error:'Viewer accounts are read-only' }), { status:403, headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'} });
+      const config = {
+        configured: alertEmailConfigured(env),
+        resend_api_key_present: Boolean(env.RESEND_API_KEY),
+        alert_email_to_present: Boolean(env.ALERT_EMAIL_TO),
+        alert_email_from_present: Boolean(env.ALERT_EMAIL_FROM)
+      };
+      if (!config.configured) return new Response(JSON.stringify({ ok:false, ...config }), { status:503, headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'} });
+      try {
+        const result = await sendAlertOnce(env, {
+          key:`manual-alert-test:${crypto.randomUUID()}`,
+          subject:'Marketing Autopilot test alert',
+          text:'Marketing Autopilot alert delivery test succeeded.'
+        });
+        return new Response(JSON.stringify({ ok:true, ...config, result }), { status:200, headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'} });
+      } catch (e) {
+        await health(env,'notifications:test','yellow',`Manual alert test failed: ${String(e.message||e).slice(0,300)}`);
+        return new Response(JSON.stringify({ ok:false, ...config, error:String(e.message||e) }), { status:502, headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'} });
+      }
     }
     if (request.method === 'GET' && url.pathname === '/system/google-drive/oauth/start') {
       const user = await currentUser(env, request);
