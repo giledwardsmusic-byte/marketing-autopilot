@@ -4,7 +4,7 @@ import { driveSyncConfigured, syncGoogleDrive, DEFAULT_DRIVE_FOLDER_ID } from '.
 import { beginGoogleDriveOAuth, completeGoogleDriveOAuth, googleDriveRedirectUri } from './lib/google-drive-oauth.js';
 import { currentUser } from './lib/auth.js';
 
-const DRIVE_SYNC_INTERVAL_MS = 60 * 60 * 1000;
+const DRIVE_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
 export function driveSyncDue(status, nowMs = Date.now()) {
   const last = Date.parse(status?.last_success_at || '');
@@ -96,8 +96,7 @@ export default {
   },
   async scheduled(controller, env, ctx) {
     await base.scheduled(controller, env, ctx);
-    // Drive ingestion runs outside browser requests. The five-minute trigger
-    // retries a missing/stale sync, while entry.js keeps the full daily pass.
+    // Drive ingestion runs outside browser requests and follows the five-minute cron.
     if (controller.cron === '*/5 * * * *') await syncDriveIfDue(env);
   }
 };
