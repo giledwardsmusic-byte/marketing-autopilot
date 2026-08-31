@@ -1,6 +1,7 @@
 name = "marketing-autopilot"
 main = "src/runtime.js"
 compatibility_date = "2026-08-01"
+keep_vars = true
 
 [assets]
 directory = "./public"
@@ -32,3 +33,4 @@ AI_PROVIDER = "none"
 AI_MODEL = ""
 APPROVED_MONTHLY_COST_CENTS = "0"
 AUTOPILOT_ENABLED = "true"
+META_APP_ID = "2003328426979752"
