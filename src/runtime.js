@@ -65,7 +65,7 @@ async function redirectFacebookOAuth(request, env) {
     redirect_uri:redirectUri,
     state,
     response_type:'code',
-    scope:'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_business_basic,instagram_business_content_publish'
+    scope:'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish'
   });
   return Response.redirect(`https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth?${params.toString()}`,302);
 }

@@ -114,7 +114,7 @@ async function beginFacebookOAuth(request,env){
   const state=crypto.randomUUID();
   await setSetting(env,`oauth:facebook:${state}`,{created_at:nowIso(),user_id:user.id});
   const redirectUri=`${origin}/oauth/facebook/callback`;
-  const params=new URLSearchParams({client_id:String(env.META_APP_ID),redirect_uri:redirectUri,state,response_type:'code',scope:'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_business_basic,instagram_business_content_publish'});
+  const params=new URLSearchParams({client_id:String(env.META_APP_ID),redirect_uri:redirectUri,state,response_type:'code',scope:'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish'});
   return json({ok:true,authorization_url:`https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth?${params.toString()}`});
 }
 
