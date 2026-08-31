@@ -114,7 +114,7 @@ async function beginFacebookOAuth(request,env){
   const state=crypto.randomUUID();
   await setSetting(env,`oauth:facebook:${state}`,{created_at:nowIso(),user_id:user.id});
   const redirectUri=`${origin}/oauth/facebook/callback`;
-  const params=new URLSearchParams({client_id:String(env.META_APP_ID),redirect_uri:redirectUri,state,response_type:'code',scope:'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish'});
+  const params=new URLSearchParams({client_id:String(env.META_APP_ID),redirect_uri:redirectUri,state,response_type:'code',scope:'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_business_basic,instagram_business_content_publish'});
   return json({ok:true,authorization_url:`https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth?${params.toString()}`});
 }
 
@@ -235,51 +235,22 @@ export default {
     return baseFetchWithSaleAlert(request,env,ctx);
   },
   async scheduled(controller,env,ctx){
-    await prepareRuntime(env);
-    const leaseToken=await acquireSchedulerLease(env);
-    if(!leaseToken)return;
-    try{
+    await ensureSchema(env);
+    await ensureSandboxConnectors(env);
+    await ensureTableRockPressSeed(env);
+    const run=async()=>{
+      const token=await acquireSchedulerLease(env);
+      if(!token)return;
       try{
-        const refreshed=await refreshSocialOAuthConnectors(env);
-        for(const r of refreshed.filter(x=>x.state==='failed'))await health(env,`oauth-refresh:${r.id}`,'yellow',String(r.error||'OAuth token refresh failed').slice(0,300));
-      }catch(e){
-        await health(env,'oauth-refresh','yellow',`Social token refresh sweep failed: ${String(e.message||e).slice(0,220)}`);
-      }
-      await preflightDueMedia(env);
-      await base.scheduled(controller,env,ctx);
-      try{
+        await preflightDueMedia(env);
+        await ensureAutopilotCampaigns(env);
+        await refreshSocialOAuthConnectors(env);
         await reconcileTikTokSubmissions(env);
-        await resolveHealth(env,'tiktok:reconcile');
-      }catch(e){
-        await health(env,'tiktok:reconcile','yellow',`TikTok submission reconciliation failed: ${String(e.message||e).slice(0,220)}`);
-      }
-      try{
-        const sales=await notifyRecordedPaidSales(env);
-        if(sales.some(x=>x.state==='failed'))throw new Error(`${sales.filter(x=>x.state==='failed').length} recorded sale alert(s) failed and will retry`);
-        await resolveHealth(env,'notifications:sale');
-      }catch(e){
-        await health(env,'notifications:sale','yellow',`Recorded sale alert sweep failed: ${String(e.message||e).slice(0,220)}`);
-      }
-      try{
+        await notifyRecordedPaidSales(env);
         await notifyUnresolvedHealth(env);
-        await resolveHealth(env,'notifications:health');
-      }catch(e){
-        await health(env,'notifications:health','yellow',`Health alert sweep failed: ${String(e.message||e).slice(0,220)}`);
-      }
-      if(controller.cron==='17 3 * * *'){
-        try{
-          await ensureAutopilotCampaigns(env);
-          await resolveHealth(env,'autopilot:campaigns');
-        }catch(e){
-          await health(env,'autopilot:campaigns','yellow',`Autopilot campaign preparation failed: ${String(e.message||e).slice(0,220)}`);
-        }
-        try{
-          await syncGoogleDrive(env);
-        }catch(e){
-        }
-      }
-    }finally{
-      await releaseSchedulerLease(env,leaseToken);
-    }
+        await syncGoogleDrive(env);
+      }finally{await releaseSchedulerLease(env,token);}
+    };
+    ctx.waitUntil(run());
   }
 };
