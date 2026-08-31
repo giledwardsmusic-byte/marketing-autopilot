@@ -2,9 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { driveMediaCandidate, productForDriveCreative, driveCreativeStatus } from '../src/lib/google-drive-sync.js';
 
-test('Drive media ingestion accepts supported real creatives',()=>{
+const products=[
+  {id:'prd_table_rock_buddy',name:'Buddy and the Whispering Forest'},
+  {id:'prd_sage_nut',name:'Sage Nut'},
+  {id:'prd_retiring',name:'Retiring Without Going Broke'}
+];
+
+test('Drive media ingestion accepts supported image files before product classification',()=>{
   assert.equal(driveMediaCandidate({name:'Buddy ad 1.png',mimeType:'image/png',size:'2500000'}),true);
-  assert.equal(driveMediaCandidate({name:'Finn cover.jpg',mimeType:'image/jpeg',size:'1200000'}),true);
+  assert.equal(driveMediaCandidate({name:'Retiring_Without_Going_Broke_ad_02.jpg',mimeType:'image/jpeg',size:'1200000'}),true);
   assert.equal(driveMediaCandidate({name:'portrait.webp',mimeType:'image/webp',size:'900000'}),true);
 });
 
@@ -15,14 +21,22 @@ test('Drive media ingestion excludes logos, unsupported types, empty files, and 
   assert.equal(driveMediaCandidate({name:'huge.png',mimeType:'image/png',size:String(26*1024*1024)}),false);
 });
 
-test('Supported creatives in the designated Drive source are visible immediately after sync',()=>{
-  assert.equal(productForDriveCreative({name:'Buddy ad 1.png'}),'prd_table_rock_buddy');
-  assert.equal(driveCreativeStatus({name:'Buddy ad 1.png',mimeType:'image/png',size:'2500000'}),'approved');
-  assert.equal(productForDriveCreative({name:'Finn cover.jpg'}),null);
-  assert.equal(driveCreativeStatus({name:'Finn cover.jpg',mimeType:'image/jpeg',size:'1200000'}),'approved');
-  assert.equal(productForDriveCreative({name:'Oliver Owl ad.png'}),null);
-  assert.equal(driveCreativeStatus({name:'Oliver Owl ad.png',mimeType:'image/png',size:'1200000'}),'approved');
-  assert.equal(productForDriveCreative({name:'Sage Nut cover.webp'}),null);
-  assert.equal(driveCreativeStatus({name:'Sage Nut cover.webp',mimeType:'image/webp',size:'1200000'}),'approved');
-  assert.equal(driveCreativeStatus({name:'Table Rock Press Logo.jpg',mimeType:'image/jpeg',size:'300000'}),'paused');
+test('Drive creatives match recognized products across fiction and nonfiction',()=>{
+  assert.equal(productForDriveCreative({name:'Buddy ad 1.png'},products),'prd_table_rock_buddy');
+  assert.equal(productForDriveCreative({name:'Sage Nut cover.webp'},products),'prd_sage_nut');
+  assert.equal(productForDriveCreative({name:'Retiring_Without_Going_Broke_ad_02.jpg'},products),'prd_retiring');
+});
+
+test('Unrecognized creatives are held out of rotation rather than guessed',()=>{
+  const file={name:'Pill ad 1.jpg',mimeType:'image/jpeg',size:'1200000'};
+  const productId=productForDriveCreative(file,products);
+  assert.equal(productId,null);
+  assert.equal(driveCreativeStatus(file,productId),'paused');
+});
+
+test('Recognized creatives become approved while logos stay paused',()=>{
+  const buddy={name:'Buddy ad 1.png',mimeType:'image/png',size:'2500000'};
+  const buddyProduct=productForDriveCreative(buddy,products);
+  assert.equal(driveCreativeStatus(buddy,buddyProduct),'approved');
+  assert.equal(driveCreativeStatus({name:'Table Rock Press Logo.jpg',mimeType:'image/jpeg',size:'300000'},null),'paused');
 });
