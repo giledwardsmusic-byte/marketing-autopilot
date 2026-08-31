@@ -62,6 +62,12 @@ function weightedPick(items, scoreFn, avoidId=null) {
   return pool.map(x=>({x,s:Math.max(0.001,scoreFn(x))})).sort((a,b)=>b.s-a.s)[0].x;
 }
 
+function exactOrGeneric(items, productId){
+  const exact=items.filter(x=>x.product_id===productId);
+  if(exact.length)return exact;
+  return items.filter(x=>!x.product_id);
+}
+
 export function buildCaption(product, copyItem, trackingUrl) {
   const core = copyItem?.text?.trim() || `${product.name}${product.short_description ? ` — ${product.short_description}` : ''}`;
   return trackingUrl ? `${core}\n\n${trackingUrl}` : core;
@@ -74,6 +80,7 @@ export function generatePlan({ products, assets, copyItems, stats={}, assetStats
   const out=[];
   const lastProductByPlatform={};
   const lastAssetByPlatform={};
+  const lastCopyByPlatform={};
 
   for (let day=0; day<7; day++) {
     for (const [platform, policy] of platforms) {
@@ -86,16 +93,19 @@ export function generatePlan({ products, assets, copyItems, stats={}, assetStats
       }
       for (const time of times) {
         const product = weightedPick(activeProducts, p=>productScore(p,stats), lastProductByPlatform[platform]);
-        const eligibleAssets = assets.filter(a => ['approved','experimental'].includes(a.status) && (!a.product_id || a.product_id===product.id) && ((a.platforms_json||[]).length===0 || (a.platforms_json||[]).includes(platform)));
+        const platformAssets = assets.filter(a => ['approved','experimental'].includes(a.status) && ((a.platforms_json||[]).length===0 || (a.platforms_json||[]).includes(platform)));
+        const eligibleAssets = exactOrGeneric(platformAssets,product.id);
         const asset = weightedPick(eligibleAssets, a=>assetScore(a,experimentalShare,assetStats), lastAssetByPlatform[platform]);
-        const eligibleCopy = copyItems.filter(c => ['approved','experimental'].includes(c.status) && (!c.product_id || c.product_id===product.id) && (!c.platform || c.platform===platform));
-        const copyItem = weightedPick(eligibleCopy, c=>copyScore(c,copyStats));
+        const platformCopy = copyItems.filter(c => ['approved','experimental'].includes(c.status) && (!c.platform || c.platform===platform));
+        const eligibleCopy = exactOrGeneric(platformCopy,product.id);
+        const copyItem = weightedPick(eligibleCopy, c=>copyScore(c,copyStats), lastCopyByPlatform[platform]);
         const trackingCode = crypto.randomUUID().replaceAll('-','').slice(0,16);
         const sales = product.sales_url || product.freebie_url || '';
         const trackingUrl = sales ? `${origin}/r/${trackingCode}` : '';
         out.push({platform,product,asset,copyItem,trackingCode,trackingUrl,scheduled_for:localSlotToUTC(startISO,day,time,timeZone)});
         lastProductByPlatform[platform]=product.id;
         if(asset) lastAssetByPlatform[platform]=asset.id;
+        if(copyItem) lastCopyByPlatform[platform]=copyItem.id;
       }
     }
   }
