@@ -1,5 +1,7 @@
 const TOKEN_KEY='ma_session_token';
+const TABLE_ROCK_PAGE_ID='1129450230257220';
 function token(){return localStorage.getItem(TOKEN_KEY)||'';}
+function config(c){try{return JSON.parse(c?.config_json||'{}')}catch{return {}}}
 async function api(path,opts={}){
   const headers={...(opts.headers||{}),'content-type':'application/json'};
   if(token())headers.authorization=`Bearer ${token()}`;
@@ -15,14 +17,14 @@ async function injectInstagramButton(){
   main.querySelectorAll('[data-ma-connector="instagram"]').forEach((el,i)=>{if(i)el.remove()});
   if(main.querySelector('[data-ma-connector="instagram"]'))return;
   let connectors=[];try{connectors=await api('/api/connectors');}catch{return;}
-  const ig=connectors.some(c=>c.platform==='instagram'&&c.connector_type==='meta_instagram'&&Number(c.enabled)===1);
-  const fb=connectors.some(c=>c.platform==='facebook'&&c.connector_type==='meta_facebook'&&Number(c.enabled)===1);
+  const ig=connectors.some(c=>c.platform==='instagram'&&c.connector_type==='meta_instagram'&&Number(c.enabled)===1&&String(config(c).source_page_id||'')===TABLE_ROCK_PAGE_ID);
+  const fb=connectors.some(c=>c.platform==='facebook'&&c.connector_type==='meta_facebook'&&Number(c.enabled)===1&&String(config(c).page_id||'')===TABLE_ROCK_PAGE_ID);
   const wrap=document.createElement('div');wrap.dataset.maConnector='instagram';wrap.style.marginBottom='16px';
   if(ig)wrap.innerHTML='<button id="connectInstagram" class="btn" disabled>Instagram connected</button>';
-  else if(!fb)wrap.innerHTML='<button id="connectInstagram" class="btn" disabled>Connect Facebook first</button>';
+  else if(!fb)wrap.innerHTML='<button id="connectInstagram" class="btn" disabled>Connect Table Rock Press Facebook first</button>';
   else wrap.innerHTML='<button id="connectInstagram" class="btn primary">Connect Instagram</button><p id="igConnectResult" class="notice"></p>';
   heading.insertAdjacentElement('afterend',wrap);
   const btn=wrap.querySelector('#connectInstagram');
-  if(!ig&&fb&&btn)btn.onclick=async()=>{btn.disabled=true;const out=wrap.querySelector('#igConnectResult');out.textContent='Checking Facebook and connecting Instagram…';try{const r=await api('/api/connectors/instagram/from-facebook',{method:'POST',body:'{}'});out.textContent=r.username?`Connected @${r.username}.`:'Instagram connected.';toast('Instagram connected');}catch(e){out.textContent=e.message;btn.disabled=false;}};
+  if(!ig&&fb&&btn)btn.onclick=async()=>{btn.disabled=true;const out=wrap.querySelector('#igConnectResult');out.textContent='Checking Table Rock Press Facebook and connecting Instagram…';try{const r=await api('/api/connectors/instagram/from-facebook',{method:'POST',body:'{}'});out.textContent=r.username?`Connected @${r.username}.`:'Instagram connected.';toast('Instagram connected');}catch(e){out.textContent=e.message;btn.disabled=false;}};
 }
 const observer=new MutationObserver(()=>injectInstagramButton());observer.observe(document.documentElement,{subtree:true,childList:true});window.addEventListener('load',injectInstagramButton);setTimeout(injectInstagramButton,700);
