@@ -12,6 +12,11 @@ AI_MODEL=
 BUFFER_API_KEY=
 MAILERLITE_API_KEY=
 
+# Meta OAuth for Table Rock Press Facebook / linked Instagram.
+# Keep META_APP_SECRET in Cloudflare Worker secrets.
+META_APP_ID=
+META_APP_SECRET=
+
 # Pinterest OAuth. Create the app in Pinterest Developers, then keep the real
 # client secret in Cloudflare Worker secrets rather than source control.
 PINTEREST_CLIENT_ID=
