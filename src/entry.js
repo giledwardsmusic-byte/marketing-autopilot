@@ -168,7 +168,7 @@ async function beginSocialOAuth(request,env,platform){
 
 function oauthResultPage(platform,ok,message){
   const title=ok?`${platform} connected`:`${platform} connection failed`;
-  const safe=String(message||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const safe=String(message||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;' }[c]));
   return new Response(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font-family:system-ui;background:#111;color:#eee;padding:32px;max-width:680px;margin:auto}a{color:#9fd3ff}.card{background:#1c1c1c;padding:24px;border-radius:14px}</style><div class="card"><h1>${title}</h1><p>${safe}</p><p><a href="/">Return to Marketing Autopilot</a></p></div>`,{status:ok?200:400,headers:{'content-type':'text/html; charset=utf-8'}});
 }
 
@@ -235,22 +235,22 @@ export default {
     return baseFetchWithSaleAlert(request,env,ctx);
   },
   async scheduled(controller,env,ctx){
-    await ensureSchema(env);
-    await ensureSandboxConnectors(env);
-    await ensureTableRockPressSeed(env);
-    const run=async()=>{
-      const token=await acquireSchedulerLease(env);
-      if(!token)return;
+    const p=(async()=>{
+      await prepareRuntime(env);
+      const lease=await acquireSchedulerLease(env);
+      if(!lease)return;
       try{
-        await preflightDueMedia(env);
-        await ensureAutopilotCampaigns(env);
-        await refreshSocialOAuthConnectors(env);
-        await reconcileTikTokSubmissions(env);
-        await notifyRecordedPaidSales(env);
-        await notifyUnresolvedHealth(env);
-        await syncGoogleDrive(env);
-      }finally{await releaseSchedulerLease(env,token);}
-    };
-    ctx.waitUntil(run());
+        if(controller.cron==='*/5 * * * *'){
+          try{await syncGoogleDrive(env)}catch(e){await health(env,'google-drive','yellow',String(e.message||e).slice(0,300))}
+          try{await refreshSocialOAuthConnectors(env)}catch(e){await health(env,'connectors:refresh','yellow',String(e.message||e).slice(0,300))}
+          try{await preflightDueMedia(env)}catch(e){await health(env,'media:preflight','yellow',String(e.message||e).slice(0,300))}
+          try{await ensureAutopilotCampaigns(env)}catch(e){await health(env,'autopilot','yellow',String(e.message||e).slice(0,300))}
+          try{await reconcileTikTokSubmissions(env)}catch(e){await health(env,'tiktok:reconcile','yellow',String(e.message||e).slice(0,300))}
+          try{await notifyRecordedPaidSales(env)}catch(e){await health(env,'notifications:sales','yellow',String(e.message||e).slice(0,300))}
+          try{await notifyUnresolvedHealth(env)}catch(e){await health(env,'notifications:health','yellow',String(e.message||e).slice(0,300))}
+        }
+      }finally{await releaseSchedulerLease(env,lease)}
+    })();
+    ctx.waitUntil(p);
   }
 };
