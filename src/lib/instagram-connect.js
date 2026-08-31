@@ -2,6 +2,7 @@ import { decryptCredential } from './security.js';
 import { nowIso } from './utils.js';
 
 const DEFAULT_GRAPH_HOST='https://graph.facebook.com';
+const TABLE_ROCK_PAGE_ID='1129450230257220';
 
 function parseConfig(raw){
   try{return JSON.parse(raw||'{}')}catch{return {}}
@@ -20,21 +21,25 @@ export async function discoverInstagramBusinessAccount({pageId,pageAccessToken,a
   return {ig_user_id:String(account.id),username:account.username?String(account.username):null};
 }
 
+async function tableRockFacebookConnector(env){
+  const rows=(await env.DB.prepare(`SELECT * FROM connectors WHERE platform='facebook' AND connector_type='meta_facebook' AND enabled=1 ORDER BY priority ASC,updated_at DESC`).all()).results||[];
+  return rows.find(row=>String(parseConfig(row.config_json).page_id||'')===TABLE_ROCK_PAGE_ID)||null;
+}
+
 export async function connectInstagramFromFacebook(env,{fetchFn=fetch}={}){
-  const fb=await env.DB.prepare(`SELECT * FROM connectors WHERE platform='facebook' AND connector_type='meta_facebook' AND enabled=1 ORDER BY priority ASC LIMIT 1`).first();
-  if(!fb)throw new Error('Facebook must be connected before Instagram can be linked');
+  const fb=await tableRockFacebookConnector(env);
+  if(!fb)throw new Error('Table Rock Press Facebook must be connected before Instagram can be linked');
   const cfg=parseConfig(fb.config_json);
-  if(!cfg.page_id)throw new Error('Connected Facebook route is missing its Page ID');
   const token=await decryptCredential(env,fb.secret_ciphertext,fb.secret_iv);
   const account=await discoverInstagramBusinessAccount({
-    pageId:cfg.page_id,
+    pageId:TABLE_ROCK_PAGE_ID,
     pageAccessToken:token,
     apiVersion:cfg.api_version||'v25.0',
     host:cfg.host||DEFAULT_GRAPH_HOST,
     fetchFn
   });
   const t=nowIso();
-  const igConfig={ig_user_id:account.ig_user_id,username:account.username||undefined,api_version:cfg.api_version||'v25.0',host:cfg.host||DEFAULT_GRAPH_HOST,source_page_id:String(cfg.page_id)};
+  const igConfig={ig_user_id:account.ig_user_id,username:account.username||undefined,api_version:cfg.api_version||'v25.0',host:cfg.host||DEFAULT_GRAPH_HOST,source_page_id:TABLE_ROCK_PAGE_ID};
   const existing=await env.DB.prepare(`SELECT id FROM connectors WHERE platform='instagram' AND connector_type='meta_instagram' ORDER BY priority ASC LIMIT 1`).first();
   if(existing){
     await env.DB.prepare(`UPDATE connectors SET name=?,enabled=1,priority=10,cost_cents_per_post=0,config_json=?,secret_ciphertext=?,secret_iv=?,last_error_at=NULL,last_error=NULL,updated_at=? WHERE id=?`)
