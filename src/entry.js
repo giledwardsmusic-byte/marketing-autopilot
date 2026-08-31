@@ -168,7 +168,7 @@ async function beginSocialOAuth(request,env,platform){
 
 function oauthResultPage(platform,ok,message){
   const title=ok?`${platform} connected`:`${platform} connection failed`;
-  const safe=String(message||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot',"'":'&#39;' }[c]));
+  const safe=String(message||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   return new Response(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font-family:system-ui;background:#111;color:#eee;padding:32px;max-width:680px;margin:auto}a{color:#9fd3ff}.card{background:#1c1c1c;padding:24px;border-radius:14px}</style><div class="card"><h1>${title}</h1><p>${safe}</p><p><a href="/">Return to Marketing Autopilot</a></p></div>`,{status:ok?200:400,headers:{'content-type':'text/html; charset=utf-8'}});
 }
 
@@ -235,22 +235,51 @@ export default {
     return baseFetchWithSaleAlert(request,env,ctx);
   },
   async scheduled(controller,env,ctx){
-    const p=(async()=>{
-      await prepareRuntime(env);
-      const lease=await acquireSchedulerLease(env);
-      if(!lease)return;
+    await prepareRuntime(env);
+    const leaseToken=await acquireSchedulerLease(env);
+    if(!leaseToken)return;
+    try{
       try{
-        if(controller.cron==='*/5 * * * *'){
-          try{await syncGoogleDrive(env)}catch(e){await health(env,'google-drive','yellow',String(e.message||e).slice(0,300))}
-          try{await refreshSocialOAuthConnectors(env)}catch(e){await health(env,'connectors:refresh','yellow',String(e.message||e).slice(0,300))}
-          try{await preflightDueMedia(env)}catch(e){await health(env,'media:preflight','yellow',String(e.message||e).slice(0,300))}
-          try{await ensureAutopilotCampaigns(env)}catch(e){await health(env,'autopilot','yellow',String(e.message||e).slice(0,300))}
-          try{await reconcileTikTokSubmissions(env)}catch(e){await health(env,'tiktok:reconcile','yellow',String(e.message||e).slice(0,300))}
-          try{await notifyRecordedPaidSales(env)}catch(e){await health(env,'notifications:sales','yellow',String(e.message||e).slice(0,300))}
-          try{await notifyUnresolvedHealth(env)}catch(e){await health(env,'notifications:health','yellow',String(e.message||e).slice(0,300))}
+        const refreshed=await refreshSocialOAuthConnectors(env);
+        for(const r of refreshed.filter(x=>x.state==='failed'))await health(env,`oauth-refresh:${r.id}`,'yellow',String(r.error||'OAuth token refresh failed').slice(0,300));
+      }catch(e){
+        await health(env,'oauth-refresh','yellow',`Social token refresh sweep failed: ${String(e.message||e).slice(0,220)}`);
+      }
+      await preflightDueMedia(env);
+      await base.scheduled(controller,env,ctx);
+      try{
+        await reconcileTikTokSubmissions(env);
+        await resolveHealth(env,'tiktok:reconcile');
+      }catch(e){
+        await health(env,'tiktok:reconcile','yellow',`TikTok submission reconciliation failed: ${String(e.message||e).slice(0,220)}`);
+      }
+      try{
+        const sales=await notifyRecordedPaidSales(env);
+        if(sales.some(x=>x.state==='failed'))throw new Error(`${sales.filter(x=>x.state==='failed').length} recorded sale alert(s) failed and will retry`);
+        await resolveHealth(env,'notifications:sale');
+      }catch(e){
+        await health(env,'notifications:sale','yellow',`Recorded sale alert sweep failed: ${String(e.message||e).slice(0,220)}`);
+      }
+      try{
+        await notifyUnresolvedHealth(env);
+        await resolveHealth(env,'notifications:health');
+      }catch(e){
+        await health(env,'notifications:health','yellow',`Health alert sweep failed: ${String(e.message||e).slice(0,220)}`);
+      }
+      if(controller.cron==='17 3 * * *'){
+        try{
+          await ensureAutopilotCampaigns(env);
+          await resolveHealth(env,'autopilot:campaigns');
+        }catch(e){
+          await health(env,'autopilot:campaigns','yellow',`Autopilot campaign preparation failed: ${String(e.message||e).slice(0,220)}`);
         }
-      }finally{await releaseSchedulerLease(env,lease)}
-    })();
-    ctx.waitUntil(p);
+        try{
+          await syncGoogleDrive(env);
+        }catch(e){
+        }
+      }
+    }finally{
+      await releaseSchedulerLease(env,leaseToken);
+    }
   }
 };
