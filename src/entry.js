@@ -1,11 +1,11 @@
 import base from './index.js';
 import { ensureAutopilotCampaigns } from './lib/autopilot-maintenance.js';
-import { health, resolveHealth } from './lib/db.js';
+import { health, resolveHealth, setting, setSetting } from './lib/db.js';
 import { ensureSchema } from './lib/schema-bootstrap.js';
 import { ensureSandboxConnectors } from './lib/sandbox.js';
 import { ensureTableRockPressSeed } from './lib/table-rock-seed.js';
 import { currentUser } from './lib/auth.js';
-import { assertSameOrigin } from './lib/security.js';
+import { assertSameOrigin, encryptCredential } from './lib/security.js';
 import { nowIso } from './lib/utils.js';
 import { notifyPaidSale, notifyRecordedPaidSales, notifyUnresolvedHealth } from './lib/notifications.js';
 import { serveImageVariant } from './lib/media-normalization.js';
@@ -18,6 +18,8 @@ const json=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:
 const SCHEDULER_LEASE_KEY='scheduler:lease';
 const SCHEDULER_LEASE_MS=10*60*1000;
 const MEDIA_RETRY_PREFIX='MEDIA_BLOCKED_RETRY:';
+const TABLE_ROCK_PAGE_ID='1129450230257220';
+const META_GRAPH_VERSION='v25.0';
 
 export async function acquireSchedulerLease(env, now=new Date()){
   const token=crypto.randomUUID();
@@ -103,6 +105,53 @@ async function connectInstagram(request,env){
   }
 }
 
+async function beginFacebookOAuth(request,env){
+  const user=await currentUser(env,request);
+  if(!user)return json({error:'Authentication required'},401);
+  if(user.role==='viewer')return json({error:'Viewer accounts are read-only'},403);
+  if(!env.META_APP_ID||!env.META_APP_SECRET)return json({error:'Facebook authorization is not configured yet. META_APP_ID and META_APP_SECRET are required.'},503);
+  const origin=new URL(request.url).origin;
+  const state=crypto.randomUUID();
+  await setSetting(env,`oauth:facebook:${state}`,{created_at:nowIso(),user_id:user.id});
+  const redirectUri=`${origin}/oauth/facebook/callback`;
+  const params=new URLSearchParams({client_id:String(env.META_APP_ID),redirect_uri:redirectUri,state,response_type:'code',scope:'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish'});
+  return json({ok:true,authorization_url:`https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth?${params.toString()}`});
+}
+
+async function graphJson(url,opts,label){
+  const r=await fetch(url,opts);const data=await r.json().catch(()=>({}));
+  if(!r.ok||data?.error)throw new Error(`${label}: ${data?.error?.message||data?.message||`HTTP ${r.status}`}`);
+  return data;
+}
+
+async function completeFacebookOAuth(request,env){
+  const url=new URL(request.url);const state=url.searchParams.get('state')||'';const code=url.searchParams.get('code')||'';
+  const externalError=url.searchParams.get('error_description')||url.searchParams.get('error');
+  if(externalError)return oauthResultPage('Facebook',false,externalError);
+  if(!state||!code)return oauthResultPage('Facebook',false,'Missing authorization response.');
+  const marker=await setting(env,`oauth:facebook:${state}`,null);
+  if(!marker)return oauthResultPage('Facebook',false,'This Facebook authorization request expired or was already used.');
+  await setSetting(env,`oauth:facebook:${state}`,null);
+  try{
+    if(!env.META_APP_ID||!env.META_APP_SECRET)throw new Error('Facebook authorization is not configured.');
+    const origin=url.origin;const redirectUri=`${origin}/oauth/facebook/callback`;
+    const tokenParams=new URLSearchParams({client_id:String(env.META_APP_ID),client_secret:String(env.META_APP_SECRET),redirect_uri:redirectUri,code});
+    const tokenData=await graphJson(`https://graph.facebook.com/${META_GRAPH_VERSION}/oauth/access_token?${tokenParams.toString()}`,{},'Facebook token exchange');
+    const userToken=tokenData.access_token;if(!userToken)throw new Error('Facebook returned no access token.');
+    const accounts=await graphJson(`https://graph.facebook.com/${META_GRAPH_VERSION}/me/accounts?fields=id,name,access_token&access_token=${encodeURIComponent(userToken)}`,{},'Facebook Pages');
+    const page=(accounts.data||[]).find(p=>String(p.id)===TABLE_ROCK_PAGE_ID);
+    if(!page?.access_token)throw new Error('Table Rock Press was not returned by Facebook. Make sure Table Rock Press is selected during authorization.');
+    const enc=await encryptCredential(env,String(page.access_token));const t=nowIso();
+    const existing=await env.DB.prepare(`SELECT id FROM connectors WHERE platform='facebook' AND connector_type='meta_facebook' AND json_extract(config_json,'$.page_id')=? ORDER BY priority ASC LIMIT 1`).bind(TABLE_ROCK_PAGE_ID).first();
+    const cfg=JSON.stringify({page_id:TABLE_ROCK_PAGE_ID,api_version:META_GRAPH_VERSION});
+    if(existing)await env.DB.prepare(`UPDATE connectors SET name='Table Rock Press Facebook',enabled=1,priority=10,cost_cents_per_post=0,config_json=?,secret_ciphertext=?,secret_iv=?,last_error_at=NULL,last_error=NULL,updated_at=? WHERE id=?`).bind(cfg,enc.ciphertext,enc.iv,t,existing.id).run();
+    else await env.DB.prepare(`INSERT INTO connectors(id,name,connector_type,platform,enabled,priority,cost_cents_per_post,config_json,secret_ciphertext,secret_iv,created_at,updated_at) VALUES(?, 'Table Rock Press Facebook','meta_facebook','facebook',1,10,0,?,?,?,?,?)`).bind(`con_${crypto.randomUUID()}`,cfg,enc.ciphertext,enc.iv,t,t).run();
+    await resolveHealth(env,'connect:facebook');
+    try{await connectInstagramFromFacebook(env);await resolveHealth(env,'connect:instagram');}catch(e){await health(env,'connect:instagram','yellow',String(e.message||e).slice(0,300));}
+    return oauthResultPage('Facebook',true,'Table Rock Press Facebook was reconnected. Marketing Autopilot also checked the linked Instagram account.');
+  }catch(e){await health(env,'connect:facebook','yellow',String(e.message||e).slice(0,300));return oauthResultPage('Facebook',false,String(e.message||e));}
+}
+
 async function beginSocialOAuth(request,env,platform){
   const user=await currentUser(env,request);
   if(!user)return json({error:'Authentication required'},401);
@@ -171,6 +220,8 @@ export default {
     await prepareRuntime(env);
     const url=new URL(request.url);
     if(url.pathname==='/api/week/approve'&&request.method==='POST')return approveWholeWeek(request,env);
+    if(url.pathname==='/api/connectors/facebook/oauth/start'&&request.method==='GET')return beginFacebookOAuth(request,env);
+    if(url.pathname==='/oauth/facebook/callback'&&request.method==='GET')return completeFacebookOAuth(request,env);
     if(url.pathname==='/api/connectors/instagram/from-facebook'&&request.method==='POST')return connectInstagram(request,env);
     if(url.pathname==='/api/connectors/pinterest/oauth/start'&&request.method==='GET')return beginSocialOAuth(request,env,'pinterest');
     if(url.pathname==='/api/connectors/tiktok/oauth/start'&&request.method==='GET')return beginSocialOAuth(request,env,'tiktok');
@@ -225,7 +276,6 @@ export default {
         try{
           await syncGoogleDrive(env);
         }catch(e){
-          // syncGoogleDrive records a Needs Attention event; keep the rest of maintenance running.
         }
       }
     }finally{
