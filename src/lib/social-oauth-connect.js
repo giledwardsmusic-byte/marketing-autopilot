@@ -52,9 +52,12 @@ async function pinterestBoards(token,fetchFn=fetch){
   if(!r.ok)throw new Error(`Pinterest boards ${r.status}: ${data?.message||data?.error||'request failed'}`);
   return Array.isArray(data?.items)?data.items:[];
 }
+function isTableRockBoardName(name){
+  const n=String(name||'').trim().toLowerCase();
+  return n==='table rock press'||n.includes('table rock');
+}
 function selectPinterestBoard(boards){
-  const norm=s=>String(s||'').trim().toLowerCase();
-  return boards.find(b=>norm(b.name)==='table rock press')||boards.find(b=>norm(b.name).includes('table rock'))||boards[0]||null;
+  return boards.find(b=>String(b?.name||'').trim().toLowerCase()==='table rock press')||boards.find(b=>isTableRockBoardName(b?.name))||null;
 }
 
 async function encryptedRefresh(env,refreshToken){
@@ -81,7 +84,11 @@ export async function completePinterestOAuth(env,{origin,state,code,fetchFn=fetc
   const redirectUri=pinterestRedirectUri(env,origin);
   const bundle=await exchangePinterestCode({clientId:env.PINTEREST_CLIENT_ID,clientSecret:env.PINTEREST_CLIENT_SECRET,code,redirectUri,fetchFn});
   const boards=await pinterestBoards(bundle.access_token,fetchFn); const board=selectPinterestBoard(boards);
-  if(!board?.id)throw new Error('Pinterest connected, but no board is available for publishing');
+  if(!board?.id){
+    await env.DB.prepare(`UPDATE connectors SET enabled=0,last_error_at=?,last_error=?,updated_at=? WHERE platform='pinterest' AND connector_type='pinterest'`)
+      .bind(nowIso(),'No Table Rock Press Pinterest board is available; publishing disabled to prevent posts going to an unrelated board.',nowIso()).run();
+    throw new Error('Pinterest authorized, but no Table Rock Press board is available. Create a Pinterest board named "Table Rock Press", then reconnect Pinterest.');
+  }
   const refresh=await encryptedRefresh(env,bundle.refresh_token);
   const config={board_id:String(board.id),board_name:String(board.name||'Pinterest'),scope:bundle.scope||'',access_expires_at:bundle.access_expires_at||null,refresh_expires_at:bundle.refresh_expires_at||null,...refresh};
   const id=await upsertConnector(env,{platform:'pinterest',connectorType:'pinterest',name:`Pinterest → ${board.name||'board'}`,accessToken:bundle.access_token,config});
@@ -121,7 +128,16 @@ export async function refreshSocialOAuthConnectors(env,{fetchFn=fetch}={}){
   const results=[];
   for(const c of rows){
     try{
-      if(c.platform==='pinterest')requirePinterestEnv(env); else requireTikTokEnv(env);
+      if(c.platform==='pinterest'){
+        requirePinterestEnv(env);
+        const cfg=parseConfig(c.config_json);
+        if(!isTableRockBoardName(cfg.board_name)){
+          await env.DB.prepare(`UPDATE connectors SET enabled=0,last_error_at=?,last_error=?,updated_at=? WHERE id=?`)
+            .bind(nowIso(),'Pinterest connector disabled because its publishing board is not a Table Rock Press board.',nowIso(),c.id).run();
+          results.push({id:c.id,state:'failed',error:'Pinterest publishing board is not a Table Rock Press board; connector disabled'});
+          continue;
+        }
+      }else requireTikTokEnv(env);
       results.push(await refreshOne(env,c,c.platform,fetchFn));
     }catch(e){
       await env.DB.prepare(`UPDATE connectors SET last_error_at=?,last_error=?,updated_at=? WHERE id=?`).bind(nowIso(),`OAuth refresh: ${String(e.message||e).slice(0,700)}`,nowIso(),c.id).run();
