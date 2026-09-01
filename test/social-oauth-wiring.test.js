@@ -28,10 +28,11 @@ test('tokens are encrypted and refresh metadata is encrypted too',()=>{
   assert.match(entry,/refreshSocialOAuthConnectors\(env\)/);
 });
 
-test('Pinterest gets a concrete publishing board before connector enablement',()=>{
+test('Pinterest requires a Table Rock Press publishing board before connector enablement',()=>{
   assert.match(helper,/\/boards\?page_size=100/);
   assert.match(helper,/board_id:String\(board.id\)/);
-  assert.match(helper,/no board is available for publishing/);
+  assert.match(helper,/no Table Rock Press board is available/);
+  assert.match(helper,/publishing disabled to prevent posts going to an unrelated board/);
 });
 
 test('Settings loads working Pinterest and TikTok connection controls',()=>{
