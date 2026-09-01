@@ -23,7 +23,8 @@ export function instagramAuthorizationUrl({appId,redirectUri,state}){
     response_type:'code',
     scope:'instagram_business_basic,instagram_business_content_publish',
     state:String(state),
-    force_reauth:'true'
+    enable_fb_login:'0',
+    force_authentication:'1'
   });
   return `${AUTH_URL}?${params.toString()}`;
 }
