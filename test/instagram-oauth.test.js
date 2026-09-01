@@ -22,7 +22,9 @@ test('builds Instagram Business Login URL with direct-login scopes',()=>{
   assert.equal(url.searchParams.get('redirect_uri'),'https://example.test/oauth/instagram/callback');
   assert.equal(url.searchParams.get('scope'),'instagram_business_basic,instagram_business_content_publish');
   assert.equal(url.searchParams.get('state'),'state-1');
-  assert.equal(url.searchParams.get('force_reauth'),'true');
+  assert.equal(url.searchParams.get('enable_fb_login'),'0');
+  assert.equal(url.searchParams.get('force_authentication'),'1');
+  assert.equal(url.searchParams.has('force_reauth'),false);
 });
 
 test('exchanges authorization code at api.instagram.com',async()=>{
