@@ -2,6 +2,7 @@ import base from './entry.js';
 import { setting, setSetting, health, resolveHealth } from './lib/db.js';
 import { driveSyncConfigured, syncGoogleDrive, DEFAULT_DRIVE_FOLDER_ID } from './lib/google-drive-sync.js';
 import { beginGoogleDriveOAuth, completeGoogleDriveOAuth, googleDriveRedirectUri } from './lib/google-drive-oauth.js';
+import { beginInstagramOAuth, completeInstagramOAuth } from './lib/instagram-oauth.js';
 import { currentUser } from './lib/auth.js';
 import { sendAlertOnce, alertEmailConfigured } from './lib/notifications.js';
 import { nowIso } from './lib/utils.js';
@@ -51,6 +52,11 @@ function oauthErrorPage(message) {
   return new Response(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google Drive authorization failed</title><body style="font-family:system-ui;background:#111;color:#eee;padding:32px;max-width:760px;margin:auto"><h1>Google Drive authorization failed</h1><p>${escapeHtml(message)}</p><p><a style="color:#9fd3ff" href="/">Return to Marketing Autopilot</a></p></body>`, { status:400, headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'} });
 }
 
+function instagramResultPage(ok,message) {
+  const title=ok?'Instagram connected':'Instagram connection failed';
+  return new Response(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font-family:system-ui;background:#111;color:#eee;padding:32px;max-width:680px;margin:auto}a{color:#9fd3ff}.card{background:#1c1c1c;padding:24px;border-radius:14px}</style><div class="card"><h1>${title}</h1><p>${escapeHtml(message)}</p><p><a href="/">Return to Marketing Autopilot</a></p></div>`, { status:ok?200:400, headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'} });
+}
+
 async function redirectFacebookOAuth(request, env) {
   const user = await currentUser(env, request);
   if (!user) return new Response(JSON.stringify({ error:'Authentication required' }), { status:401, headers:{'content-type':'application/json; charset=utf-8'} });
@@ -70,6 +76,36 @@ async function redirectFacebookOAuth(request, env) {
   return Response.redirect(`https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth?${params.toString()}`,302);
 }
 
+async function redirectInstagramOAuth(request,env){
+  const user=await currentUser(env,request);
+  if(!user)return new Response(JSON.stringify({error:'Authentication required'}),{status:401,headers:{'content-type':'application/json; charset=utf-8'}});
+  if(user.role==='viewer')return new Response(JSON.stringify({error:'Viewer accounts are read-only'}),{status:403,headers:{'content-type':'application/json; charset=utf-8'}});
+  const origin=new URL(request.url).origin;
+  const result=await beginInstagramOAuth(env,{origin,userId:user.id});
+  return Response.redirect(result.authorization_url,302);
+}
+
+async function completeInstagramOAuthRequest(request,env){
+  const url=new URL(request.url);
+  const externalError=url.searchParams.get('error_description')||url.searchParams.get('error');
+  if(externalError){
+    await health(env,'connect:instagram','yellow',String(externalError).slice(0,300));
+    return instagramResultPage(false,externalError);
+  }
+  try{
+    const result=await completeInstagramOAuth(env,{
+      origin:url.origin,
+      state:url.searchParams.get('state')||'',
+      code:url.searchParams.get('code')||''
+    });
+    await resolveHealth(env,'connect:instagram');
+    return instagramResultPage(true,`Connected @${result.username}. Marketing Autopilot will publish through Instagram directly, without relying on the Facebook Page token.`);
+  }catch(e){
+    await health(env,'connect:instagram','yellow',String(e.message||e).slice(0,300));
+    return instagramResultPage(false,String(e.message||e));
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -80,6 +116,17 @@ export default {
         await health(env,'connect:facebook','yellow',String(e.message||e).slice(0,300));
         return new Response(JSON.stringify({ error:String(e.message||e) }), { status:400, headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'} });
       }
+    }
+    if (request.method === 'GET' && url.pathname === '/api/connectors/instagram/oauth/start') {
+      try {
+        return await redirectInstagramOAuth(request,env);
+      } catch (e) {
+        await health(env,'connect:instagram','yellow',String(e.message||e).slice(0,300));
+        return new Response(JSON.stringify({error:String(e.message||e)}),{status:503,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
+      }
+    }
+    if (request.method === 'GET' && url.pathname === '/oauth/instagram/callback') {
+      return completeInstagramOAuthRequest(request,env);
     }
     if (request.method === 'GET' && url.pathname === '/system/drive-status') {
       const syncStatus = await setting(env, 'drive_sync_status', {});
