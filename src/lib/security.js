@@ -33,10 +33,10 @@ export async function verifyPassword(password, salt, expected) {
 export const hashSessionToken = token => sha256Hex(token);
 
 export function sessionCookie(token, maxAge = 60*60*24*14) {
-  return `ma_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
+  return `ma_session=${token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 }
 export function clearSessionCookie() {
-  return 'ma_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0';
+  return 'ma_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0';
 }
 export function readCookie(request, name) {
   const raw = request.headers.get('cookie') || '';
