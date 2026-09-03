@@ -83,7 +83,8 @@ export async function notifyRecordedPaidSales(env){
 }
 
 export async function notifyUnresolvedHealth(env){
-  const rows=(await env.DB.prepare(`SELECT id,component,severity,message,created_at FROM health_events WHERE resolved=0 ORDER BY CASE severity WHEN 'red' THEN 0 WHEN 'yellow' THEN 1 ELSE 2 END,created_at ASC`).all()).results||[];
+  if(!alertEmailConfigured(env))return [];
+  const rows=(await env.DB.prepare(`SELECT id,component,severity,message,created_at FROM health_events WHERE resolved=0 ORDER BY CASE severity WHEN 'red' THEN 0 WHEN 'yellow' THEN 1 ELSE 2 END,created_at ASC LIMIT 200`).all()).results||[];
   const out=[];
   for(const row of rows){
     const text=`Marketing Autopilot needs attention.\n\nSeverity: ${row.severity}\nIssue: ${row.component}\n${row.message||''}\nDetected: ${row.created_at||''}`;
@@ -91,6 +92,6 @@ export async function notifyUnresolvedHealth(env){
     catch(e){out.push({state:'failed',health_event_id:row.id,error:String(e.message||e)});}
   }
   const failed=out.filter(x=>x.state==='failed');
-  if(failed.length)throw new Error(`${failed.length} health alert(s) failed and will retry`);
+  if(failed.length)throw new Error(`Health alert sweep had failures and will retry`);
   return out;
 }
