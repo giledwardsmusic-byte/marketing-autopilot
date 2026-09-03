@@ -6,7 +6,7 @@ export async function audit(env, { userId=null, type, entityType=null, entityId=
 }
 
 export async function health(env, component, severity, message) {
-  const existing = await env.DB.prepare(`SELECT id FROM health_events WHERE component=? AND message=? AND resolved=0 LIMIT 1`).bind(component, message).first();
+  const existing = await env.DB.prepare(`SELECT id FROM health_events WHERE component=? AND resolved=0 LIMIT 1`).bind(component).first();
   if (!existing) await env.DB.prepare(`INSERT INTO health_events(id,component,severity,message,resolved,created_at) VALUES(?,?,?,?,0,?)`)
     .bind(id('health'), component, severity, message, nowIso()).run();
 }
