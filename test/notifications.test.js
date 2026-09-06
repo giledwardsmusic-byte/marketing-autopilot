@@ -147,7 +147,7 @@ test('health sweep fails closed when any required email delivery fails',async()=
   globalThis.fetch=async()=>new Response(JSON.stringify({message:'temporary'}),{status:503,headers:{'content-type':'application/json'}});
   try{
     const env={DB,RESEND_API_KEY:'x',ALERT_EMAIL_TO:'a@example.com',ALERT_EMAIL_FROM:'b@example.com'};
-    await assert.rejects(()=>notifyUnresolvedHealth(env),/1 health alert\(s\) failed and will retry/);
+    await assert.rejects(()=>notifyUnresolvedHealth(env),/Health alert sweep had failures and will retry/);
     assert.equal(DB.store.has('notification:health:h1'),false);
   }finally{globalThis.fetch=oldFetch;}
 });
