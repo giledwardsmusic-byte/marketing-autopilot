@@ -106,6 +106,21 @@ async function completeInstagramOAuthRequest(request,env){
   }
 }
 
+async function manualDriveSync(request,env){
+  const user=await currentUser(env,request);
+  if(!user)return new Response(JSON.stringify({error:'Authentication required'}),{status:401,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
+  if(user.role==='viewer')return new Response(JSON.stringify({error:'Viewer accounts are read-only'}),{status:403,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
+  if(!driveSyncConfigured(env))return new Response(JSON.stringify({ok:false,error:'Google Drive synchronization is not configured'}),{status:503,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
+  try{
+    const result=await syncGoogleDrive(env);
+    const syncStatus=await setting(env,'drive_sync_status',{});
+    return new Response(JSON.stringify({ok:true,result,sync_status:syncStatus}),{status:200,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
+  }catch(e){
+    await health(env,'google-drive','yellow',`Manual Drive sync failed: ${String(e.message||e).slice(0,300)}`);
+    return new Response(JSON.stringify({ok:false,error:String(e.message||e)}),{status:502,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -137,6 +152,9 @@ export default {
           'cache-control': 'no-store'
         }
       });
+    }
+    if (request.method === 'POST' && url.pathname === '/system/drive-sync') {
+      return manualDriveSync(request,env);
     }
     if (request.method === 'GET' && url.pathname === '/system/alert-test') {
       const user = await currentUser(env, request);
