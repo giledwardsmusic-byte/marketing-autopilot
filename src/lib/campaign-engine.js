@@ -1,5 +1,9 @@
 import { clamp } from './utils.js';
 
+const DEFAULT_POSTING_POLICY = {
+  instagram: { per_day: 1, times: ['12:00'] },
+  pinterest: { per_day: 1, times: ['18:00'] }
+};
 
 function localDateParts(startISO, dayOffset){
   const d=new Date(startISO); d.setUTCDate(d.getUTCDate()+dayOffset);
@@ -76,7 +80,8 @@ export function buildCaption(product, copyItem, trackingUrl) {
 export function generatePlan({ products, assets, copyItems, stats={}, assetStats={}, copyStats={}, postingPolicy, startISO, origin, experimentalShare=0.12, timeZone='UTC' }) {
   const activeProducts = products.filter(p=>p.status==='active');
   if (!activeProducts.length) return [];
-  const platforms = Object.entries(postingPolicy||{});
+  const configuredPolicy = postingPolicy && Object.keys(postingPolicy).length ? postingPolicy : DEFAULT_POSTING_POLICY;
+  const platforms = Object.entries(configuredPolicy);
   const out=[];
   const lastProductByPlatform={};
   const lastAssetByPlatform={};
