@@ -3,6 +3,11 @@ import { generatePlan, buildCaption } from './campaign-engine.js';
 import { generateCopy } from './ai.js';
 import { audit, health, resolveHealth, setting } from './db.js';
 
+const DEFAULT_POSTING_POLICY = {
+  instagram: { per_day: 1, times: ['12:00'] },
+  pinterest: { per_day: 1, times: ['18:00'] }
+};
+
 async function productRows(env){
   const rows=(await env.DB.prepare(`SELECT * FROM products WHERE status='active' ORDER BY updated_at DESC`).all()).results||[];
   return rows.map(r=>({...r,features:parseJSON(r.features_json,[]),benefits:parseJSON(r.benefits_json,[])}));
@@ -51,7 +56,9 @@ async function prepareWeek(env,start,origin){
   }
 
   const perf=await performanceMaps(env);
-  const policy=await setting(env,'posting_policy',{}),autopilot=await setting(env,'autopilot',{enabled:true,experimental_share:0.12}),tz=await setting(env,'marketing_timezone',{iana:'UTC'});
+  const configuredPolicy=await setting(env,'posting_policy',null);
+  const policy=configuredPolicy && Object.keys(configuredPolicy).length ? configuredPolicy : DEFAULT_POSTING_POLICY;
+  const autopilot=await setting(env,'autopilot',{enabled:true,experimental_share:0.12}),tz=await setting(env,'marketing_timezone',{iana:'UTC'});
   const plan=generatePlan({products,assets,copyItems,stats:perf.products,assetStats:perf.assets,copyStats:perf.copy,postingPolicy:policy,startISO:start,origin,experimentalShare:autopilot.experimental_share||0.12,timeZone:tz.iana||'UTC'}).filter(x=>new Date(x.scheduled_for).getTime()>Date.now()+5*60_000);
   if(!plan.length) return {count:0};
   const campaignId=id('camp'),end=endOfWeekISO(start),t=nowIso();
