@@ -1,0 +1,15 @@
+name: Fetch Pinterest diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fetch-pinterest-diagnostic.yml'
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch diagnostic
+        run: |
+          curl -fsS https://marketing-autopilot.giledwardsmusic.workers.dev/system/live-proof-pinterest-diagnostic
