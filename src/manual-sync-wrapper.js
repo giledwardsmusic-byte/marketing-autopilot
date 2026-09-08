@@ -6,6 +6,7 @@ import { ensureAutopilotCampaigns } from './lib/autopilot-maintenance.js';
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function html(body){return new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Marketing Autopilot</title></head><body style="font-family:system-ui,sans-serif;padding:24px;line-height:1.45;max-width:720px;margin:auto">${body}</body></html>`,{status:200,headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});}
+function json(data,status=200){return new Response(JSON.stringify(data,null,2),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});}
 
 function progressPage(result) {
   const pending=Number(result?.media?.pending||0);
@@ -18,32 +19,20 @@ async function browserDriveSync(request, env) {
   const user = await currentUser(env, request);
   if (!user) return Response.redirect(new URL('/', request.url), 302);
   if (user.role === 'viewer') {
-    return new Response(JSON.stringify({ ok:false, error:'Viewer accounts are read-only' }), {
-      status:403,
-      headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
-    });
+    return json({ ok:false, error:'Viewer accounts are read-only' },403);
   }
   if (!driveSyncConfigured(env)) {
-    return new Response(JSON.stringify({ ok:false, error:'Google Drive synchronization is not configured' }), {
-      status:503,
-      headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
-    });
+    return json({ ok:false, error:'Google Drive synchronization is not configured' },503);
   }
   try {
     const result = await syncGoogleDrive(env);
     if (result?.state === 'partial') return progressPage(result);
     const campaigns = await ensureAutopilotCampaigns(env);
     const sync_status = await setting(env, 'drive_sync_status', {});
-    return new Response(JSON.stringify({ ok:true, result, sync_status, campaigns }, null, 2), {
-      status:200,
-      headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
-    });
+    return json({ ok:true, result, sync_status, campaigns });
   } catch (e) {
     await health(env, 'google-drive', 'yellow', `Browser Drive sync failed: ${String(e.message || e).slice(0,300)}`);
-    return new Response(JSON.stringify({ ok:false, error:String(e.message || e) }, null, 2), {
-      status:502,
-      headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
-    });
+    return json({ ok:false, error:String(e.message || e) },502);
   }
 }
 
@@ -88,7 +77,14 @@ async function liveProofPinterestStatus(request, env) {
   const refresh=final?'':'<meta http-equiv="refresh" content="5">';
   const image=post.public_token?`<img src="/public-media/${encodeURIComponent(post.public_token)}" alt="" style="max-width:220px;border-radius:12px">`:'';
   const state=post.status==='published'?'PUBLISHED SUCCESSFULLY':post.status==='failed'?'PUBLISH FAILED':post.status==='simulated'?'SIMULATED ONLY':'WAITING FOR AUTOMATIC PUBLISH';
-  return html(`${refresh}<h1>${esc(state)}</h1><p><strong>Platform:</strong> Pinterest</p><p><strong>Product:</strong> ${esc(post.product_name||'')}</p><p><strong>Graphic:</strong> ${esc(post.original_name||'')}</p>${image}<p><strong>Status:</strong> ${esc(post.status)}</p><p><strong>Published at:</strong> ${esc(post.published_at||'not yet')}</p><p><strong>External post ID:</strong> ${esc(post.external_post_id||'not yet')}</p>${post.error_message?`<p><strong>Error:</strong> ${esc(post.error_message)}</p>`:''}<h3>Caption being tested</h3><p style="white-space:pre-wrap">${esc(post.caption||'')}</p>${final?'<p>You can send this screen back to ChatGPT.</p>':'<p>This page checks automatically every 5 seconds. Keep it open.</p>'}`);
+  return html(`${refresh}<h1>${esc(state)}</h1>${post.error_message?`<div style="padding:16px;background:#fee;border:2px solid #c00;border-radius:10px"><strong>Full error:</strong><pre style="white-space:pre-wrap">${esc(post.error_message)}</pre></div>`:''}<p><strong>Platform:</strong> Pinterest</p><p><strong>Product:</strong> ${esc(post.product_name||'')}</p><p><strong>Graphic:</strong> ${esc(post.original_name||'')}</p>${image}<p><strong>Status:</strong> ${esc(post.status)}</p><p><strong>Published at:</strong> ${esc(post.published_at||'not yet')}</p><p><strong>External post ID:</strong> ${esc(post.external_post_id||'not yet')}</p><h3>Caption being tested</h3><p style="white-space:pre-wrap">${esc(post.caption||'')}</p>${final?'<p>You can send this screen back to ChatGPT.</p>':'<p>This page checks automatically every 5 seconds. Keep it open.</p>'}`);
+}
+
+async function pinterestDiagnostic(env){
+  const post=await env.DB.prepare(`SELECT id,status,error_message,scheduled_for,published_at,external_post_id,updated_at FROM scheduled_posts WHERE lower(platform)='pinterest' AND status='failed' ORDER BY updated_at DESC LIMIT 1`).first();
+  const connector=await env.DB.prepare(`SELECT id,name,connector_type,enabled,last_error_at,last_error,config_json FROM connectors WHERE lower(platform)='pinterest' ORDER BY priority ASC LIMIT 1`).first();
+  let cfg={}; try{cfg=JSON.parse(connector?.config_json||'{}')}catch{}
+  return json({ok:true,post:post||null,connector:connector?{id:connector.id,name:connector.name,connector_type:connector.connector_type,enabled:connector.enabled,last_error_at:connector.last_error_at,last_error:connector.last_error,board_id_present:Boolean(cfg.board_id),board_name:cfg.board_name||null}:null});
 }
 
 export default {
@@ -97,6 +93,7 @@ export default {
     if (request.method === 'GET' && url.pathname === '/system/drive-sync-browser') return browserDriveSync(request, env);
     if (request.method === 'GET' && url.pathname === '/system/live-proof-pinterest') return liveProofPinterest(request, env);
     if (request.method === 'GET' && url.pathname === '/system/live-proof-pinterest-status') return liveProofPinterestStatus(request, env);
+    if (request.method === 'GET' && url.pathname === '/system/live-proof-pinterest-diagnostic') return pinterestDiagnostic(env);
     return runtime.fetch(request, env, ctx);
   },
   async scheduled(controller, env, ctx) {
