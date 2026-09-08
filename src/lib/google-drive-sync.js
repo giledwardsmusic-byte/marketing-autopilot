@@ -6,6 +6,7 @@ const COPY_BANK_TITLE='Marketing Copy Bank - Table Rock Press';
 const ARCHIVE_TITLE='Marketing Autopilot Archive.json';
 const DRIVE_FOLDER_MIME='application/vnd.google-apps.folder';
 const DRIVE_MEDIA_MAX_BYTES=25*1024*1024;
+const DRIVE_MEDIA_BATCH_SIZE=6;
 const DRIVE_MEDIA_MIMES=new Set(['image/jpeg','image/png','image/webp']);
 const PRODUCT_ALIAS_STOP_WORDS=new Set(['and','the','for','with','from','into','book','books']);
 
@@ -163,21 +164,17 @@ export async function importDriveMedia(env,token,files){
   const previous=await setting(env,'drive_media_inventory',{});
   const inventory={...(previous||{})};
   const products=(await env.DB.prepare(`SELECT id,name,status FROM products`).all()).results||[];
-  let imported=0,unchanged=0,skipped=0,failed=0,held=0;
-  for(const file of files.filter(driveMediaCandidate)){
+  const candidates=files.filter(driveMediaCandidate);
+  const pending=candidates.filter(file=>{
+    const version=`${file.modifiedTime||''}:${file.md5Checksum||''}:${file.size||''}`;
+    return inventory[file.id]?.version!==version||!inventory[file.id]?.asset_id;
+  });
+  const batch=pending.slice(0,DRIVE_MEDIA_BATCH_SIZE);
+  let imported=0,failed=0;
+  for(const file of batch){
     const version=`${file.modifiedTime||''}:${file.md5Checksum||''}:${file.size||''}`;
     const productId=productForDriveCreative(file,products);
     const assetStatus=driveCreativeStatus(file,productId);
-    if(inventory[file.id]?.version===version&&inventory[file.id]?.asset_id){
-      const existingAsset=await env.DB.prepare(`SELECT id,product_id,status FROM assets WHERE id=?`).bind(inventory[file.id].asset_id).first();
-      if(existingAsset&&(existingAsset.product_id!==productId||existingAsset.status!==assetStatus)){
-        await env.DB.prepare(`UPDATE assets SET product_id=?,status=?,updated_at=? WHERE id=?`).bind(productId,assetStatus,new Date().toISOString(),existingAsset.id).run();
-        inventory[file.id]={...inventory[file.id],product_id:productId,status:assetStatus};
-        imported++;
-      }else unchanged++;
-      if(!productId)held++;
-      continue;
-    }
     try{
       const bytes=await downloadDriveFile(token,file);
       const dimensions=imageDimensions(bytes,file.mimeType);
@@ -189,7 +186,9 @@ export async function importDriveMedia(env,token,files){
         if((!Number(dup.width)||!Number(dup.height))&&width&&height){
           await env.DB.prepare(`UPDATE assets SET width=?,height=?,updated_at=? WHERE id=?`).bind(width,height,new Date().toISOString(),dup.id).run();
         }
-        inventory[file.id]={version,asset_id:dup.id,source_name:file.name,duplicate:true,width,height,product_id:productId,status:assetStatus};unchanged++;if(!productId)held++;continue;
+        inventory[file.id]={version,asset_id:dup.id,source_name:file.name,duplicate:true,width,height,product_id:productId,status:assetStatus};
+        imported++;
+        continue;
       }
       const aid=`ast_drive_${String(file.id).replace(/[^a-zA-Z0-9_-]/g,'').slice(0,80)}`;
       const existing=await env.DB.prepare(`SELECT id,r2_key FROM assets WHERE id=?`).bind(aid).first();
@@ -204,18 +203,20 @@ export async function importDriveMedia(env,token,files){
         await env.DB.prepare(`INSERT INTO assets(id,product_id,r2_key,public_token,original_name,mime_type,size_bytes,width,height,campaign_type,platforms_json,purpose,status,sha256,perceptual_hint,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
           .bind(aid,productId,key,tokenPublic,file.name,file.mimeType,bytes.byteLength,width,height,'product',JSON.stringify(['facebook','instagram','pinterest','tiktok']),'sale',assetStatus,hash,`drive:${file.id}`,t,t).run();
       }
-      inventory[file.id]={version,asset_id:aid,source_name:file.name,r2_key:key,width,height,product_id:productId,status:assetStatus}; imported++; if(!productId)held++;
+      inventory[file.id]={version,asset_id:aid,source_name:file.name,r2_key:key,width,height,product_id:productId,status:assetStatus}; imported++;
     }catch(e){
       inventory[file.id]={version,source_name:file.name,error:String(e.message||e).slice(0,240),failed_at:new Date().toISOString()}; failed++;
     }
   }
-  skipped=files.length-files.filter(driveMediaCandidate).length;
+  const held=candidates.filter(file=>!productForDriveCreative(file,products)).length;
+  const skipped=files.length-candidates.length;
+  const remaining=Math.max(0,pending.length-batch.length);
   await setSetting(env,'drive_media_inventory',inventory);
   if(held)await health(env,'google-drive-unmatched','yellow',`${held} Drive creative(s) are safely held out of rotation because no product name could be matched. Rename them or add the matching product to activate them.`);
   else await resolveHealth(env,'google-drive-unmatched');
-  if(failed)await health(env,'google-drive-media','yellow',`${failed} Drive creative(s) could not be imported; originals remain untouched and will retry on the next sync.`);
+  if(failed)await health(env,'google-drive-media','yellow',`${failed} Drive creative(s) could not be imported in the current batch; originals remain untouched and will retry on the next sync.`);
   else await resolveHealth(env,'google-drive-media');
-  return {imported,unchanged,skipped,failed,held,tracked:Object.keys(inventory).length};
+  return {imported,unchanged:candidates.length-pending.length,skipped,failed,held,tracked:Object.keys(inventory).length,processed:batch.length,pending:remaining,complete:remaining===0};
 }
 
 export async function buildArchive(env){
@@ -267,8 +268,13 @@ export async function syncGoogleDrive(env){
     }
     const imported=await importCopyBank(env,token,files);
     const media=await importDriveMedia(env,token,files);
+    if(!media.complete){
+      const previousStatus=await setting(env,'drive_sync_status',{});
+      await setSetting(env,'drive_sync_status',{...previousStatus,folder_id:folder,last_attempt_at:new Date().toISOString(),source_files:files.length,copy_blocks:imported.blocks,copy_changed:imported.changed,media_imported:media.imported,media_failed:media.failed,media_held:media.held,media_pending:media.pending,state:'partial'});
+      return {state:'partial',source_files:files.length,imported,media};
+    }
     const archive=await upsertArchive(env,token,rootFiles);
-    await setSetting(env,'drive_sync_status',{folder_id:folder,last_success_at:new Date().toISOString(),source_files:files.length,copy_blocks:imported.blocks,copy_changed:imported.changed,media_imported:media.imported,media_failed:media.failed,media_held:media.held,archive_file_id:archive.file_id});
+    await setSetting(env,'drive_sync_status',{folder_id:folder,last_success_at:new Date().toISOString(),last_attempt_at:new Date().toISOString(),source_files:files.length,copy_blocks:imported.blocks,copy_changed:imported.changed,media_imported:media.imported,media_failed:media.failed,media_held:media.held,media_pending:0,state:'synced',archive_file_id:archive.file_id});
     await resolveHealth(env,'google-drive');
     return {state:'synced',source_files:files.length,imported,media,archive};
   }catch(e){
