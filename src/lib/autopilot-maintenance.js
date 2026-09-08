@@ -39,7 +39,11 @@ async function saveGeneratedCopy(env,product,platform,text){
 
 async function prepareWeek(env,start,origin){
   const existing=await env.DB.prepare(`SELECT id FROM campaigns WHERE week_start=? AND status IN ('planned','active') LIMIT 1`).bind(start).first();
-  if(existing) return {reused:true,campaign_id:existing.id,count:0};
+  if(existing){
+    const row=await env.DB.prepare(`SELECT COUNT(*) n FROM scheduled_posts WHERE campaign_id=?`).bind(existing.id).first();
+    const count=Number(row?.n||0);
+    if(count>0) return {reused:true,campaign_id:existing.id,count};
+  }
   const products=await productRows(env); if(!products.length) return {count:0};
   const assets=((await env.DB.prepare(`SELECT * FROM assets WHERE status IN ('approved','experimental')`).all()).results||[]).map(a=>({...a,platforms_json:parseJSON(a.platforms_json,[])}));
   let copyItems=(await env.DB.prepare(`SELECT * FROM copy_items WHERE status IN ('approved','experimental')`).all()).results||[];
@@ -61,8 +65,10 @@ async function prepareWeek(env,start,origin){
   const autopilot=await setting(env,'autopilot',{enabled:true,experimental_share:0.12}),tz=await setting(env,'marketing_timezone',{iana:'UTC'});
   const plan=generatePlan({products,assets,copyItems,stats:perf.products,assetStats:perf.assets,copyStats:perf.copy,postingPolicy:policy,startISO:start,origin,experimentalShare:autopilot.experimental_share||0.12,timeZone:tz.iana||'UTC'}).filter(x=>new Date(x.scheduled_for).getTime()>Date.now()+5*60_000);
   if(!plan.length) return {count:0};
-  const campaignId=id('camp'),end=endOfWeekISO(start),t=nowIso();
-  await env.DB.prepare(`INSERT INTO campaigns(id,name,week_start,week_end,status,autopilot,generated_at,generated_by) VALUES(?,?,?,?, 'planned',1,?,'autopilot')`).bind(campaignId,`Week of ${start.slice(0,10)}`,start,end,t).run();
+  const campaignId=existing?.id||id('camp'),end=endOfWeekISO(start),t=nowIso();
+  if(!existing){
+    await env.DB.prepare(`INSERT INTO campaigns(id,name,week_start,week_end,status,autopilot,generated_at,generated_by) VALUES(?,?,?,?, 'planned',1,?,'autopilot')`).bind(campaignId,`Week of ${start.slice(0,10)}`,start,end,t).run();
+  }
   for(const item of plan){
     let copyId=item.copyItem?.id||null;
     let caption=buildCaption(item.product,item.copyItem,item.trackingUrl);
@@ -74,7 +80,7 @@ async function prepareWeek(env,start,origin){
     await env.DB.prepare(`INSERT INTO scheduled_posts(id,campaign_id,product_id,asset_id,copy_id,platform,caption,scheduled_for,status,approval_mode,tracking_code,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?, 'scheduled','autopilot',?,?,?)`).bind(id('post'),campaignId,item.product.id,item.asset?.id||null,copyId,item.platform,caption,item.scheduled_for,item.trackingCode,t,t).run();
   }
   await audit(env,{type:'campaign.autopilot_generated',entityType:'campaign',entityId:campaignId,summary:`Autopilot prepared ${plan.length} scheduled items for ${start.slice(0,10)}`});
-  return {campaign_id:campaignId,count:plan.length};
+  return {campaign_id:campaignId,count:plan.length,reused:Boolean(existing)};
 }
 
 export async function ensureAutopilotCampaigns(env){
