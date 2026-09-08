@@ -2,6 +2,7 @@ import runtime from './runtime.js';
 import { currentUser } from './lib/auth.js';
 import { setting, health } from './lib/db.js';
 import { driveSyncConfigured, syncGoogleDrive } from './lib/google-drive-sync.js';
+import { ensureAutopilotCampaigns } from './lib/autopilot-maintenance.js';
 
 async function browserDriveSync(request, env) {
   const user = await currentUser(env, request);
@@ -20,8 +21,9 @@ async function browserDriveSync(request, env) {
   }
   try {
     const result = await syncGoogleDrive(env);
+    const campaigns = await ensureAutopilotCampaigns(env);
     const sync_status = await setting(env, 'drive_sync_status', {});
-    return new Response(JSON.stringify({ ok:true, result, sync_status }, null, 2), {
+    return new Response(JSON.stringify({ ok:true, result, sync_status, campaigns }, null, 2), {
       status:200,
       headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}
     });
