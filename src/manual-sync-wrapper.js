@@ -37,7 +37,12 @@ async function armLiveProof(request,env,platform,settingKey){
   if(!user)return Response.redirect(new URL('/',request.url),302);
   if(user.role==='viewer')return html('<h2>Live proof unavailable</h2><p>Viewer accounts are read-only.</p>');
   const existing=await setting(env,settingKey,null);
-  if(existing?.post_id)return Response.redirect(new URL(`/system/live-proof-${platform}-status?id=${encodeURIComponent(existing.post_id)}`,request.url),302);
+  if(existing?.post_id){
+    const existingPost=await env.DB.prepare(`SELECT status FROM scheduled_posts WHERE id=? LIMIT 1`).bind(existing.post_id).first();
+    const state=String(existingPost?.status||'');
+    if(!['failed','published','simulated'].includes(state))return Response.redirect(new URL(`/system/live-proof-${platform}-status?id=${encodeURIComponent(existing.post_id)}`,request.url),302);
+    await env.DB.prepare(`DELETE FROM settings WHERE key=?`).bind(settingKey).run();
+  }
   const post=await env.DB.prepare(`SELECT sp.id,sp.caption,sp.scheduled_for,sp.status,p.name product_name,a.public_token,a.original_name
     FROM scheduled_posts sp
     LEFT JOIN products p ON p.id=sp.product_id
@@ -50,7 +55,7 @@ async function armLiveProof(request,env,platform,settingKey){
   if(!post)return html(`<h2>No ${esc(platform)} proof post found</h2><p>There is no future scheduled Buddy ${esc(platform)} post available to move forward.</p>`);
   const original=post.scheduled_for;
   const due=new Date(Date.now()-30000).toISOString();
-  await env.DB.prepare(`UPDATE scheduled_posts SET scheduled_for=?,status='approved',updated_at=? WHERE id=?`).bind(due,new Date().toISOString(),post.id).run();
+  await env.DB.prepare(`UPDATE scheduled_posts SET scheduled_for=?,status='approved',error_message=NULL,updated_at=? WHERE id=?`).bind(due,new Date().toISOString(),post.id).run();
   await env.DB.prepare(`INSERT INTO settings(key,value_json,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value_json=excluded.value_json,updated_at=excluded.updated_at`)
     .bind(settingKey,JSON.stringify({post_id:post.id,original_scheduled_for:original,armed_at:new Date().toISOString(),product_name:post.product_name,asset_name:post.original_name}),new Date().toISOString()).run();
   return Response.redirect(new URL(`/system/live-proof-${platform}-status?id=${encodeURIComponent(post.id)}`,request.url),302);
