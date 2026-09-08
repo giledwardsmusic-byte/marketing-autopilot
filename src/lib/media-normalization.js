@@ -115,17 +115,18 @@ export async function serveImageVariant(env,platform,token){
   }
   if(!env.IMAGES)return fallbackOriginal(env,platform,token,row,'Cloudflare Images binding unavailable');
   try{
-    const pipeline=env.IMAGES.input(obj.body)
+    const transformed=await env.IMAGES.input(obj.body)
       .transform({width:profile.width,height:profile.height,fit:profile.fit})
       .output({format:profile.format,quality:profile.quality});
-    const transformed=await pipeline.response();
-    if(!transformed.ok){
-      let body=`HTTP ${transformed.status}`;
-      try{if(typeof transformed.text==='function')body=await transformed.text();}catch{}
-      const quota=transformed.status===429||String(body).includes('9422');
-      return fallbackOriginal(env,platform,token,row,quota?'Cloudflare transformation quota exhausted':`Cloudflare transform HTTP ${transformed.status}`);
+    const response=typeof transformed.response==='function'?await transformed.response():transformed.response;
+    if(!(response instanceof Response))throw new Error('Cloudflare Images transform did not return a Response');
+    if(!response.ok){
+      let body=`HTTP ${response.status}`;
+      try{body=await response.text();}catch{}
+      const quota=response.status===429||String(body).includes('9422');
+      return fallbackOriginal(env,platform,token,row,quota?'Cloudflare transformation quota exhausted':`Cloudflare transform HTTP ${response.status}`);
     }
-    const bytes=await transformed.arrayBuffer();
+    const bytes=await response.arrayBuffer();
     let cacheState='generated';
     try{
       await env.MEDIA.put(cacheKey,bytes,{httpMetadata:{contentType:profile.format},customMetadata:{source_sha256:String(row.sha256||''),platform:String(platform),ratio:profile.ratio}});
