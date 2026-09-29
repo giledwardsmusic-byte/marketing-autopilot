@@ -5,7 +5,7 @@ import { ensureSchema } from './lib/schema-bootstrap.js';
 import { ensureSandboxConnectors } from './lib/sandbox.js';
 import { ensureTableRockPressSeed } from './lib/table-rock-seed.js';
 import { currentUser } from './lib/auth.js';
-import { assertSameOrigin, encryptCredential } from './lib/security.js';
+import { assertSameOrigin, encryptCredential, decryptCredential } from './lib/security.js';
 import { nowIso } from './lib/utils.js';
 import { notifyPaidSale, notifyRecordedPaidSales, notifyUnresolvedHealth } from './lib/notifications.js';
 import { serveImageVariant } from './lib/media-normalization.js';
@@ -124,6 +124,33 @@ async function graphJson(url,opts,label){
   return data;
 }
 
+
+async function checkFacebookConnection(request,env){
+  const user=await currentUser(env,request);
+  if(!user)return json({error:'Authentication required'},401);
+  if(user.role==='viewer')return json({error:'Viewer accounts are read-only'},403);
+  const connector=await env.DB.prepare(`SELECT * FROM connectors WHERE platform='facebook' AND connector_type='meta_facebook' AND enabled=1 ORDER BY priority ASC LIMIT 1`).first();
+  if(!connector)return json({ok:false,error:'No enabled Facebook connector found.'},404);
+  try{
+    const token=connector.secret_ciphertext?await decryptCredential(env,connector.secret_ciphertext,connector.secret_iv):null;
+    if(!token)throw new Error('Facebook access token is missing.');
+    const cfg=JSON.parse(connector.config_json||'{}');
+    if(!cfg.page_id)throw new Error('Facebook Page ID is missing.');
+    const version=cfg.api_version||META_GRAPH_VERSION;
+    const page=await graphJson(`https://graph.facebook.com/${version}/${encodeURIComponent(cfg.page_id)}?fields=id,name&access_token=${encodeURIComponent(token)}`,{},'Facebook connection check');
+    const t=nowIso();
+    await env.DB.prepare(`UPDATE connectors SET last_success_at=?,last_error_at=NULL,last_error=NULL,updated_at=? WHERE id=?`).bind(t,t,connector.id).run();
+    await resolveHealth(env,'connect:facebook');
+    await resolveHealth(env,'publish:facebook');
+    return json({ok:true,page_id:page.id||cfg.page_id,page_name:page.name||cfg.page_name||'Facebook Page'});
+  }catch(e){
+    const t=nowIso(),msg=String(e.message||e).slice(0,1000);
+    await env.DB.prepare(`UPDATE connectors SET last_error_at=?,last_error=?,updated_at=? WHERE id=?`).bind(t,msg,t,connector.id).run();
+    await health(env,'connect:facebook','yellow',msg);
+    return json({ok:false,error:msg},400);
+  }
+}
+
 async function completeFacebookOAuth(request,env){
   const url=new URL(request.url);const state=url.searchParams.get('state')||'';const code=url.searchParams.get('code')||'';
   const externalError=url.searchParams.get('error_description')||url.searchParams.get('error');
@@ -228,6 +255,7 @@ export default {
     await prepareRuntime(env);
     const url=new URL(request.url);
     if(url.pathname==='/api/week/approve'&&request.method==='POST')return approveWholeWeek(request,env);
+    if(url.pathname==='/api/connectors/facebook/check'&&request.method==='POST')return checkFacebookConnection(request,env);
     if(url.pathname==='/api/connectors/facebook/oauth/start'&&request.method==='GET')return beginFacebookOAuth(request,env);
     if(url.pathname==='/oauth/facebook/callback'&&request.method==='GET')return completeFacebookOAuth(request,env);
     if(url.pathname==='/api/connectors/instagram/from-facebook'&&request.method==='POST')return connectInstagram(request,env);
