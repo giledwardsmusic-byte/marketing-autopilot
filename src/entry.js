@@ -114,7 +114,7 @@ async function beginFacebookOAuth(request,env){
   const state=crypto.randomUUID();
   await setSetting(env,`oauth:facebook:${state}`,{created_at:nowIso(),user_id:user.id});
   const redirectUri=`${origin}/oauth/facebook/callback`;
-  const params=new URLSearchParams({client_id:String(env.META_APP_ID),redirect_uri:redirectUri,state,response_type:'code',scope:'pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish'});
+  const params=new URLSearchParams({client_id:String(env.META_APP_ID),redirect_uri:redirectUri,state,response_type:'code',scope:'pages_show_list,pages_read_engagement,pages_manage_posts'});
   return json({ok:true,authorization_url:`https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth?${params.toString()}`});
 }
 
@@ -139,11 +139,19 @@ async function completeFacebookOAuth(request,env){
     const tokenData=await graphJson(`https://graph.facebook.com/${META_GRAPH_VERSION}/oauth/access_token?${tokenParams.toString()}`,{},'Facebook token exchange');
     const userToken=tokenData.access_token;if(!userToken)throw new Error('Facebook returned no access token.');
     const accounts=await graphJson(`https://graph.facebook.com/${META_GRAPH_VERSION}/me/accounts?fields=id,name,access_token&access_token=${encodeURIComponent(userToken)}`,{},'Facebook Pages');
-    const page=(accounts.data||[]).find(p=>String(p.id)===TABLE_ROCK_PAGE_ID);
-    if(!page?.access_token)throw new Error('Table Rock Press was not returned by Facebook. Make sure Table Rock Press is selected during authorization.');
+    const returnedPages=accounts.data||[];
+    const page=returnedPages.find(p=>String(p.id)===TABLE_ROCK_PAGE_ID)
+      ||returnedPages.find(p=>String(p.name||'').trim().toLowerCase()==='table rock press');
+    if(!page?.access_token){
+      const names=returnedPages.map(p=>p.name).filter(Boolean);
+      throw new Error(names.length
+        ? `Table Rock Press was not returned by Facebook. Facebook returned: ${names.join(', ')}.`
+        : 'Facebook returned no Pages for this account. Make sure this Facebook profile has Page access to Table Rock Press.');
+    }
+    const pageId=String(page.id);
     const enc=await encryptCredential(env,String(page.access_token));const t=nowIso();
-    const existing=await env.DB.prepare(`SELECT id FROM connectors WHERE platform='facebook' AND connector_type='meta_facebook' AND json_extract(config_json,'$.page_id')=? ORDER BY priority ASC LIMIT 1`).bind(TABLE_ROCK_PAGE_ID).first();
-    const cfg=JSON.stringify({page_id:TABLE_ROCK_PAGE_ID,api_version:META_GRAPH_VERSION});
+    const existing=await env.DB.prepare(`SELECT id FROM connectors WHERE platform='facebook' AND connector_type='meta_facebook' ORDER BY priority ASC LIMIT 1`).first();
+    const cfg=JSON.stringify({page_id:pageId,page_name:page.name||'Table Rock Press',api_version:META_GRAPH_VERSION});
     if(existing)await env.DB.prepare(`UPDATE connectors SET name='Table Rock Press Facebook',enabled=1,priority=10,cost_cents_per_post=0,config_json=?,secret_ciphertext=?,secret_iv=?,last_error_at=NULL,last_error=NULL,updated_at=? WHERE id=?`).bind(cfg,enc.ciphertext,enc.iv,t,existing.id).run();
     else await env.DB.prepare(`INSERT INTO connectors(id,name,connector_type,platform,enabled,priority,cost_cents_per_post,config_json,secret_ciphertext,secret_iv,created_at,updated_at) VALUES(?, 'Table Rock Press Facebook','meta_facebook','facebook',1,10,0,?,?,?,?,?)`).bind(`con_${crypto.randomUUID()}`,cfg,enc.ciphertext,enc.iv,t,t).run();
     await resolveHealth(env,'connect:facebook');
