@@ -199,7 +199,42 @@ async function api(env,request,user,url){
     const x=await bodyJson(request); if(!x.post_id||!x.platform)return fail(new Error('post_id and platform required')); const source=x.source||'manual'; await env.DB.prepare(`INSERT INTO metrics(id,post_id,platform,source,impressions,reach,engagements,clicks,landing_visits,conversions,revenue_cents,captured_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(post_id,source) DO UPDATE SET impressions=excluded.impressions,reach=excluded.reach,engagements=excluded.engagements,clicks=excluded.clicks,landing_visits=excluded.landing_visits,conversions=excluded.conversions,revenue_cents=excluded.revenue_cents,captured_at=excluded.captured_at`).bind(`met_${source}_${x.post_id}`,x.post_id,x.platform,source,Number(x.impressions||0),Number(x.reach||0),Number(x.engagements||0),Number(x.clicks||0),Number(x.landing_visits||0),Number(x.conversions||0),Number(x.revenue_cents||0),nowIso()).run(); return json({ok:true},201);
   }
   if(p==='/api/needs-attention'&&method==='GET'){
-    const failed=(await env.DB.prepare(`SELECT sp.*,p.name product_name FROM scheduled_posts sp LEFT JOIN products p ON p.id=sp.product_id WHERE sp.status='failed' ORDER BY sp.updated_at DESC LIMIT 100`).all()).results||[]; const healthRows=(await env.DB.prepare(`SELECT * FROM health_events WHERE resolved=0 ORDER BY created_at DESC LIMIT 100`).all()).results||[]; return json({failed,health:healthRows});
+    // Old failures stop being actionable once a connector has been cleanly reconnected
+    // after the failure occurred. Keep the historical rows in D1, but don't keep
+    // showing them to the user as current problems.
+    const failed=(await env.DB.prepare(`
+      SELECT sp.*,p.name product_name
+      FROM scheduled_posts sp
+      LEFT JOIN products p ON p.id=sp.product_id
+      WHERE sp.status='failed'
+        AND NOT EXISTS (
+          SELECT 1 FROM connectors c
+          WHERE lower(c.platform)=lower(sp.platform)
+            AND c.enabled=1
+            AND c.last_error IS NULL
+            AND c.updated_at>sp.updated_at
+        )
+      ORDER BY sp.updated_at DESC
+      LIMIT 100
+    `).all()).results||[];
+    const healthRows=(await env.DB.prepare(`
+      SELECT h.*
+      FROM health_events h
+      WHERE h.resolved=0
+        AND NOT EXISTS (
+          SELECT 1 FROM connectors c
+          WHERE c.enabled=1
+            AND c.last_error IS NULL
+            AND c.updated_at>h.created_at
+            AND (
+              lower(h.component)=lower('connect:'||c.platform)
+              OR lower(h.component)=lower('publish:'||c.platform)
+            )
+        )
+      ORDER BY created_at DESC
+      LIMIT 100
+    `).all()).results||[];
+    return json({failed,health:healthRows});
   }
   if(p==='/api/audit'&&method==='GET') return json((await env.DB.prepare(`SELECT * FROM audit_events ORDER BY created_at DESC LIMIT 200`).all()).results||[]);
   if(p==='/api/settings'&&method==='GET') return json({posting_policy:await setting(env,'posting_policy',{}),autopilot:await setting(env,'autopilot',{}),optimization:await setting(env,'optimization',{}),marketing_timezone:await setting(env,'marketing_timezone',{iana:'UTC'}),cost_control:await setting(env,'cost_control',{approved_monthly_cost_cents:0,ai_estimated_cents_per_call:1})});
