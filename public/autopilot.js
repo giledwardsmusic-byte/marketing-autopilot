@@ -8,6 +8,22 @@ const token=()=>localStorage.getItem(TOKEN_KEY)||'';
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.remove('hidden');clearTimeout(toast.timer);toast.timer=setTimeout(()=>t.classList.add('hidden'),3200)}
 function showLogin(){ $('#app').classList.add('hidden'); $('#login').classList.remove('hidden'); }
 function showApp(){ $('#login').classList.add('hidden'); $('#app').classList.remove('hidden'); }
+function summarizeAttention(a={}){
+  const health=[],seenHealth=new Set();
+  for(const h of (a.health||[])){
+    const key=h.component||`${h.severity||''}:${h.message||''}`;
+    if(seenHealth.has(key))continue;
+    seenHealth.add(key);health.push(h);
+  }
+  const failed=[],seenFailed=new Set(),allFailed=a.failed||[];
+  for(const p of allFailed){
+    const key=String(p.platform||'unknown').toLowerCase();
+    if(seenFailed.has(key))continue;
+    seenFailed.add(key);
+    failed.push({...p,failure_count:allFailed.filter(x=>String(x.platform||'unknown').toLowerCase()===key).length});
+  }
+  return {health,failed,issues:health.length+failed.length};
+}
 async function api(path,opts={}){
   const headers={...(opts.body instanceof FormData?{}:{'content-type':'application/json'}),...(opts.headers||{})};
   if(token())headers.authorization=`Bearer ${token()}`;
@@ -25,7 +41,7 @@ $('#modal').addEventListener('click',e=>{if(e.target===$('#modal'))$('#modal').c
 async function refreshStatus(){
   try{
     const [d,a]=await Promise.all([api('/api/dashboard'),api('/api/needs-attention')]); state.dashboard=d;
-    const health=d.health||[], failed=(a.failed||[]).length, issues=health.length+failed;
+    const summary=summarizeAttention(a),health=summary.health,issues=summary.issues;
     const severity=health.some(x=>x.severity==='red')?'red':issues?'yellow':'green';
     $('#healthOrb').className=`orb ${severity}`;
     $('#healthLabel').textContent=issues?`${issues} item${issues===1?'':'s'} need attention`:'All systems normal';
@@ -90,7 +106,7 @@ function copyModal(main){openModal(`<div class="row between"><h2 style="margin:0
 
 async function performance(main){const p=await api('/api/performance');const table=(rows,key)=>rows?.length?`<div class="table-wrap"><table><thead><tr><th>${key==='name'?'Product':'Platform'}</th><th>Impr.</th><th>Clicks</th><th>Conv.</th><th>Revenue</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r[key]||'Unknown')}</td><td>${Number(r.impressions||0).toLocaleString()}</td><td>${Number(r.clicks||0)}</td><td>${Number(r.conversions||0)}</td><td>${money(r.revenue_cents)}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">No performance data yet.</div>';main.innerHTML=`<section class="card"><h2>By product</h2>${table(p.byProduct,'name')}</section><section class="card"><h2>By platform</h2>${table(p.byPlatform,'platform')}</section>`}
 
-async function attention(main){const a=await api('/api/needs-attention'),health=a.health||[],failed=a.failed||[];main.innerHTML=`<section class="card"><h2>Needs attention (${health.length+failed.length})</h2>${!health.length&&!failed.length?'<div class="empty">Nothing needs you right now.</div>':''}${health.map(h=>`<div class="post-item"><div class="post-body"><div class="post-meta"><span class="badge ${esc(h.severity)}">${esc(h.severity)}</span> ${esc(h.component||'system')}</div><div class="post-copy">${esc(h.message)}</div></div></div>`).join('')}${failed.map(p=>`<div class="post-item"><div class="post-body"><div class="post-meta"><span class="badge failed">failed</span> ${esc(p.platform)} · ${esc(p.product_name||'Product')}</div><div class="post-copy bad">${esc(p.error_message||'Unknown publishing error')}</div></div></div>`).join('')}</section>`}
+async function attention(main){const a=await api('/api/needs-attention'),summary=summarizeAttention(a),health=summary.health,failed=summary.failed;main.innerHTML=`<section class="card"><h2>Needs attention (${summary.issues})</h2>${!health.length&&!failed.length?'<div class="empty">Nothing needs you right now.</div>':''}${health.map(h=>`<div class="post-item"><div class="post-body"><div class="post-meta"><span class="badge ${esc(h.severity)}">${esc(h.severity)}</span> ${esc(h.component||'system')}</div><div class="post-copy">${esc(h.message)}</div></div></div>`).join('')}${failed.map(p=>`<div class="post-item"><div class="post-body"><div class="post-meta"><span class="badge failed">failed</span> ${esc(p.platform)} · ${Number(p.failure_count||1)} affected post${Number(p.failure_count||1)===1?'':'s'}</div><div class="post-copy bad">${esc(p.error_message||'Unknown publishing error')}</div></div></div>`).join('')}</section>`}
 
 async function settings(main){const [s,connectors,users]=await Promise.all([api('/api/settings'),api('/api/connectors'),api('/api/users')]);main.innerHTML=`<section class="card"><h2>Autopilot</h2><div class="row between"><div><div class="strong">${s.autopilot?.enabled?'Running':'Paused'}</div><div class="muted small">Marketing can continue without weekly approval.</div></div><button id="toggleAuto" class="btn ${s.autopilot?.enabled?'':'primary'}">${s.autopilot?.enabled?'Pause':'Start'}</button></div></section><section class="card"><h2>Cost protection</h2><label>Approved monthly automation cost ($)</label><input id="costCeiling" type="number" min="0" step="1" value="${Number(s.cost_control?.approved_monthly_cost_cents||0)/100}"><button id="saveCost" class="btn">Save limit</button><p class="notice">Paid routes above this ceiling are blocked automatically.</p></section><section class="card"><h2>Publishing connections</h2>${connectors.length?connectors.map(c=>`<div class="post-item"><div class="post-body"><div class="strong">${esc(c.platform)} → ${esc(c.name)}</div><div class="post-meta">${esc(c.connector_type)} · priority ${c.priority} · ${c.enabled?'enabled':'off'}</div></div></div>`).join(''):'<div class="empty">No publishing routes connected yet.</div>'}</section><section class="card"><h2>Administrators</h2>${users.map(u=>`<div class="post-item"><div class="post-body"><div class="strong">${esc(u.email)}</div><div class="post-meta">${esc(u.role)} · ${esc(u.status)}</div></div></div>`).join('')}</section>`;$('#toggleAuto').onclick=async()=>{await api('/api/settings',{method:'PATCH',body:{autopilot:{...s.autopilot,enabled:!s.autopilot?.enabled}}});await settings(main)};$('#saveCost').onclick=async()=>{await api('/api/settings',{method:'PATCH',body:{cost_control:{...s.cost_control,approved_monthly_cost_cents:Math.round(Number($('#costCeiling').value||0)*100)}}});toast('Cost limit saved')};}
 
